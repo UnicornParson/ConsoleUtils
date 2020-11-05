@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.8
 import tempfile
 import argparse
 import sys
@@ -8,8 +8,10 @@ import os
 import sqlite3
 import hashlib
 import json
+from reprint import output
 
 mstime = lambda: int(round(time.time() * 1000))
+
 
 class dbEngine:
   connection = None
@@ -20,7 +22,7 @@ class dbEngine:
     dbEngine.connection = sqlite3.connect(dbPath)
     dbEngine.cursor = dbEngine.connection.cursor()
     dbEngine.makeDb()
-
+  @staticmethod
   def checkDb():
     if not dbEngine.cursor or not dbEngine.connection:
       raise Exception('dbEngine', 'not opened')
@@ -51,13 +53,14 @@ class dbEngine:
       dbEngine.connection.close()
     dbEngine.connection = None
 
+  @staticmethod
   def notUniqueHashes():
     dbEngine.checkDb()
     rc = []
     for row in dbEngine.cursor.execute("SELECT DISTINCT hash FROM files GROUP BY hash HAVING COUNT(*) > 1"):
       rc.append(row[0])
     return rc
-
+  @staticmethod
   def filesByHash(hash):
     dbEngine.checkDb()
     rc = []
@@ -71,6 +74,7 @@ class dbEngine:
     dbEngine.cursor.execute("INSERT INTO files VALUES (?,?,?)", (path, hash, size))
     dbEngine.connection.commit()
 
+  @staticmethod
   def writeGroupRecord(hash, fname, size):
     dbEngine.checkDb()
     dbEngine.cursor.execute("INSERT INTO result VALUES (?,?,?)", (hash, fname, size))
@@ -80,6 +84,32 @@ class dbEngine:
 class Logger:
   verbose = False
   quiet = False
+  progressPrint = False
+  filesCount = 0
+  filesSize = 0
+  hashIndex = 0
+
+  @staticmethod
+  def printIndexProgress(fname):
+    global progressOutput
+    if progressOutput and Logger.progressPrint:
+      progressOutput[1] = "[Number: {count}, Total size: {size}] read {name}".format(count = Logger.filesCount,
+                                                                                    size = Logger.convert_bytes(Logger.filesSize),
+                                                                                    name = fname)
+  @staticmethod
+  def printReduceProgress(hash, totalCount):
+    global progressOutput
+    if progressOutput and Logger.progressPrint:
+      progressOutput[1] = "[{i} of {tcount}] {h}".format(i = Logger.hashIndex,
+                                                         tcount =totalCount,
+                                                         h = hash)
+ 
+  @staticmethod
+  def convert_bytes(num):
+    for x in ['B', 'KB', 'MB', 'GB', 'TB']:
+      if num < 1024.0:
+        return "%3.1f%s" % (num, x)
+      num /= 1024.0
 
   @staticmethod
   def verboseLog(msg):
@@ -162,8 +192,12 @@ def readFile(path):
   Logger.verboseLog("read file " + path)
   md5str = calc(path)
   fileSize = os.path.getsize(path)
+  Logger.filesCount += 1
+  Logger.filesSize += fileSize
+  Logger.printIndexProgress(path)
   Logger.verboseLog("hash: " + md5str + " size: " + str(fileSize))
   dbEngine.writeFileInfo(path, md5str, fileSize)
+  
 
 def readDir(path):
   if os.path.islink(path): 
@@ -172,14 +206,18 @@ def readDir(path):
   if os.path.isfile(path):
     readFile(path)
     return
-  Logger.verboseLog("read folder " + path)
-  for entry in os.listdir(path):
-    readDir(path + "/" + entry)
+  if os.path.isdir(path):
+    Logger.verboseLog("read folder " + path)
+    for entry in os.listdir(path):
+      readDir(path + "/" + entry)
 
 def groupRecords():
   groups = {}
-  for hash in dbEngine.notUniqueHashes():
+  nuHashes = dbEngine.notUniqueHashes()
+  for hash in nuHashes:
     Logger.verboseLog(hash + " :: " + str(dbEngine.filesByHash(hash)))
+    Logger.hashIndex += 1
+    Logger.printReduceProgress(hash, len(nuHashes))
     files = dbEngine.filesByHash(hash)
     if len(files) <= 1:
       continue
@@ -200,6 +238,7 @@ parser.add_argument("-o", "--target", "--out", action="store", default=".", help
 parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|sqlite(default)")
 parser.add_argument("-v", "--verbose", action="store_true", help="print all messages")
 parser.add_argument("-q", "--quiet", action="store_true", help="no output")
+parser.add_argument("--progress", action="store_true", help="print progress line")
 parser.add_argument("path", help="folder to scan")
 args = parser.parse_args()
 dbPath = ":memory:"
@@ -215,8 +254,13 @@ if not os.path.isdir(inPath):
     parser.print_help(sys.stderr)
     sys.exit(1)
 
-Logger.quiet = args.quiet
+Logger.progressPrint = args.progress
+Logger.quiet = args.quiet and not Logger.progressPrint
 Logger.verbose = args.verbose and not Logger.quiet
+#if Logger.progressPrint:
+#  progressOutput = output(output_type="list", initial_len=1, interval=0)
+#else:
+# progressOutput = None
 target = args.target
 if not target:
   target = "."
@@ -227,20 +271,20 @@ if fmt == Formats.sqlite and target:
 
 
 Logger.verboseLog("in: " + inPath + " out[" + args.format + "]: " + target)
-
-dbEngine.open(dbPath)
-Logger.log("---- indexing stage ----")
-readDir(args.path)
-Logger.log("---- comparation stage ----")
-groups = groupRecords()
-groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
-if fmt == Formats.json:
-  outFile = open(target, 'w')
-  outFile.write(groups_json)
-  outFile.close()
-elif fmt == Formats.stdout:
-  print(groups_json)
-else:
-  print("database saved to " + dbPath)
-Logger.log("---- done ----")
-dbEngine.close()
+with output(output_type="list", initial_len=2, interval=0) as progressOutput:
+  dbEngine.open(dbPath)
+  progressOutput[0] = "---- indexing stage ----"
+  readDir(args.path)
+  progressOutput[0] = "---- comparation stage ----"
+  groups = groupRecords()
+  groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
+  if fmt == Formats.json:
+    outFile = open(target, 'w')
+    outFile.write(groups_json)
+    outFile.close()
+  elif fmt == Formats.stdout:
+    print(groups_json)
+  else:
+    print("database saved to " + dbPath)
+  progressOutput[0] = "---- done ----"
+  dbEngine.close()
