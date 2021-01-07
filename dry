@@ -12,6 +12,29 @@ from reprint import output
 
 mstime = lambda: int(round(time.time() * 1000))
 
+class StrUtils:
+  @staticmethod
+  def convert_bytes(num) -> str:
+    for x in ['B', 'KB', 'MB', 'GB', 'TB']:
+      if num < 1024.0:
+        return "%3.1f%s" % (num, x)
+      num /= 1024.0
+
+  @staticmethod
+  def msToHours(num) -> str:
+    ms = num % 1000
+    s = (num // 1000) % 60
+    m = (num // 60000)  % 60
+    h = num // (60 * 60 * 1000)
+    return "%dh %dm %ds %03dms" % (h, m, s, ms)
+
+  @staticmethod
+  def secondsToHours(num) -> str:
+    s = num % 60
+    m = (num // 60)  % 60
+    h = num // 3600
+    return "%dh %dm %ds" % (h, m, s)
+
 
 class dbEngine:
   connection = None
@@ -19,7 +42,7 @@ class dbEngine:
 
   @staticmethod
   def open(path):
-    dbEngine.connection = sqlite3.connect(dbPath)
+    dbEngine.connection = sqlite3.connect(path)
     dbEngine.cursor = dbEngine.connection.cursor()
     dbEngine.makeDb()
   @staticmethod
@@ -80,36 +103,47 @@ class dbEngine:
     dbEngine.cursor.execute("INSERT INTO result VALUES (?,?,?)", (hash, fname, size))
     dbEngine.connection.commit()
 
+class Stats:
+  def __init__(self):
+    self.totalCount = 0
+    self.totalSize = 0
+    self.startTime = mstime()
+    self.filesCount = 0
+    self.filesSize = 0
 
 class Logger:
   verbose = False
   quiet = False
   progressPrint = False
-  filesCount = 0
-  filesSize = 0
+  stats = Stats()
   hashIndex = 0
+  progressOutputLine = None
 
   @staticmethod
   def printIndexProgress(fname):
-    global progressOutput
-    if progressOutput and Logger.progressPrint:
-      progressOutput[1] = "[Number: {count}, Total size: {size}] read {name}".format(count = Logger.filesCount,
-                                                                                    size = Logger.convert_bytes(Logger.filesSize),
-                                                                                    name = fname)
+    if not Logger.progressOutputLine:
+      print("no progressOutputLine in printIndexProgress!")
+      exit(1)
+
+    if Logger.progressPrint:
+      timediff = mstime() - Logger.stats.startTime
+      Logger.progressOutputLine[1] = "Files %d of %d done (%s of %s)" % (Logger.stats.filesCount,
+                                                              Logger.stats.totalCount,
+                                                              StrUtils.convert_bytes(Logger.stats.filesSize),
+                                                              StrUtils.convert_bytes(Logger.stats.totalSize))
+      Logger.progressOutputLine[2] = "duration: %s" % (StrUtils.msToHours(timediff))
+
+
   @staticmethod
   def printReduceProgress(hash, totalCount):
-    global progressOutput
-    if progressOutput and Logger.progressPrint:
-      progressOutput[1] = "[{i} of {tcount}] {h}".format(i = Logger.hashIndex,
-                                                         tcount =totalCount,
-                                                         h = hash)
- 
-  @staticmethod
-  def convert_bytes(num):
-    for x in ['B', 'KB', 'MB', 'GB', 'TB']:
-      if num < 1024.0:
-        return "%3.1f%s" % (num, x)
-      num /= 1024.0
+    if not Logger.progressOutputLine:
+      print("no progressOutputLine in printIndexProgress!")
+      exit(1)
+
+    if Logger.progressPrint:
+      timediff = mstime() - Logger.stats.startTime
+      Logger.progressOutputLine[1] = "[{%d} of {%d}] {%s}" % (Logger.hashIndex, totalCount, hash)
+      Logger.progressOutputLine[2] = "duration: %s" % (StrUtils.msToHours(timediff))
 
   @staticmethod
   def verboseLog(msg):
@@ -156,10 +190,20 @@ def calc(fname):
   block_size = 128 * md5_object.block_size
   a_file = open(fname, 'rb')
   chunk = a_file.read(block_size)
+  processedSize = block_size
+  fSize = os.path.getsize(fname)
+  Logger.progressOutputLine[3] = ""
+  if fSize <= 0:
+    return md5_object.hexdigest()
+
   while chunk:
-  	md5_object.update(chunk)
-  	chunk = a_file.read(block_size)
+    prc = (processedSize / fSize) * 100.0
+    Logger.progressOutputLine[3] = "process file %s %0.3f%%" % (fname, prc)
+    md5_object.update(chunk)
+    chunk = a_file.read(block_size)
+    processedSize += block_size
   a_file.close()
+  Logger.progressOutputLine[3] = ""
   return md5_object.hexdigest()
 
 def compareFiles(path1, path2) -> bool:
@@ -190,26 +234,32 @@ def compareFiles(path1, path2) -> bool:
 
 def readFile(path):
   Logger.verboseLog("read file " + path)
-  md5str = calc(path)
-  fileSize = os.path.getsize(path)
-  Logger.filesCount += 1
-  Logger.filesSize += fileSize
+  try:
+    md5str = calc(path)
+    fileSize = os.path.getsize(path)
+  except:
+    print("cannot read file " + path)
+  Logger.stats.filesCount += 1
+  Logger.stats.filesSize += fileSize
   Logger.printIndexProgress(path)
   Logger.verboseLog("hash: " + md5str + " size: " + str(fileSize))
   dbEngine.writeFileInfo(path, md5str, fileSize)
   
 
 def readDir(path):
-  if os.path.islink(path): 
-    Logger.verboseLog("ignore link " + path)
-    return
-  if os.path.isfile(path):
-    readFile(path)
-    return
-  if os.path.isdir(path):
-    Logger.verboseLog("read folder " + path)
-    for entry in os.listdir(path):
-      readDir(path + "/" + entry)
+  try:
+    if os.path.islink(path): 
+      Logger.verboseLog("ignore link " + path)
+      return
+    if os.path.isfile(path):
+      readFile(path)
+      return
+    if os.path.isdir(path):
+      Logger.verboseLog("read folder " + path)
+      for entry in os.listdir(path):
+        readDir(path + "/" + entry)
+  except:
+    print("cannot process %s. skip" % path)
 
 def groupRecords():
   groups = {}
@@ -233,6 +283,82 @@ def groupRecords():
         dbEngine.writeGroupRecord(hash, secondFile[0], secondFile[1])
   return groups
 
+
+
+class Executor:
+  def __init__(self, args):
+    self.dbPath = ":memory:"
+    self.fmt = Formats.parce(args.format)
+    if self.fmt == Formats.invalid:
+        print("invalid format " + args.format)
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    self.inPath = args.path
+    if not os.path.isdir(self.inPath):
+        print("input must be a folder")
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    Logger.progressPrint = args.progress
+    Logger.quiet = args.quiet and not Logger.progressPrint
+    Logger.verbose = args.verbose and not Logger.quiet
+    #if Logger.progressPrint:
+    #  progressOutput = output(output_type="list", initial_len=1, interval=0)
+    #else:
+    # progressOutput = None
+    self.target = args.target
+    if not self.target:
+      self.target = "."
+    if os.path.isdir(self.target):
+      self.target += "/duplicatesReport." + str(mstime()) + Formats.ext(self.fmt)
+    if self.fmt == Formats.sqlite and self.target:
+      self.dbPath = self.target
+    Logger.verboseLog("in: %s, out[%s]: %s" %  (self.inPath, args.format, self.target))
+
+  def scandir(self, path):
+    try:
+      if os.path.islink(path):
+        return
+      if os.path.isdir(path):
+        for entry in os.listdir(path):
+          self.scandir(path + "/" + entry)
+      else:
+        Logger.stats.totalSize += os.path.getsize(path)
+        Logger.stats.totalCount += 1
+    except:
+      print("cannot scan %s" % path)
+
+  def prescan(self):
+    if not self.inPath:
+      print("no input")
+      exit(1)
+    self.scandir(self.inPath)
+    Logger.verboseLog("prescan stage: done. found %d files (%s)" % (Logger.stats.totalCount, StrUtils.convert_bytes(Logger.stats.totalSize))) 
+
+  def exec(self):
+    with output(output_type="list", initial_len=4, interval=0) as Logger.progressOutputLine:
+      if not Logger.progressOutputLine:
+        print("exec: outLine is not setted ")
+      dbEngine.open(self.dbPath)
+      Logger.progressOutputLine[0] = "----[   indexing stage  ]----"
+      readDir(self.inPath)
+      Logger.verboseLog("indexing stage: done")
+      Logger.progressOutputLine[0] = "----[ comparation stage ]----"
+      groups = groupRecords()
+      Logger.verboseLog("comparation stage: done")
+      groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
+      if self.fmt == Formats.json:
+        outFile = open(target, 'w')
+        outFile.write(groups_json)
+        outFile.close()
+      elif self.fmt == Formats.stdout:
+        print(groups_json)
+      else:
+        print("database saved to " + self.dbPath)
+      Logger.progressOutputLine[0] = "----[ done ]----"
+      dbEngine.close()
+
 parser = argparse.ArgumentParser(add_help=True, description="Duplicates detector [Don't repeat yourself!]")
 parser.add_argument("-o", "--target", "--out", action="store", default=".", help="output target (default .)")
 parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|sqlite(default)")
@@ -241,50 +367,6 @@ parser.add_argument("-q", "--quiet", action="store_true", help="no output")
 parser.add_argument("--progress", action="store_true", help="print progress line")
 parser.add_argument("path", help="folder to scan")
 args = parser.parse_args()
-dbPath = ":memory:"
-fmt = Formats.parce(args.format)
-if fmt == Formats.invalid:
-    print("invalid format " + args.format)
-    parser.print_help(sys.stderr)
-    sys.exit(1)
-
-inPath = args.path
-if not os.path.isdir(inPath):
-    print("input must be a folder")
-    parser.print_help(sys.stderr)
-    sys.exit(1)
-
-Logger.progressPrint = args.progress
-Logger.quiet = args.quiet and not Logger.progressPrint
-Logger.verbose = args.verbose and not Logger.quiet
-#if Logger.progressPrint:
-#  progressOutput = output(output_type="list", initial_len=1, interval=0)
-#else:
-# progressOutput = None
-target = args.target
-if not target:
-  target = "."
-if os.path.isdir(target):
-  target += "/duplicatesReport." + str(mstime()) + Formats.ext(fmt)
-if fmt == Formats.sqlite and target:
-  dbPath = target
-
-
-Logger.verboseLog("in: " + inPath + " out[" + args.format + "]: " + target)
-with output(output_type="list", initial_len=2, interval=0) as progressOutput:
-  dbEngine.open(dbPath)
-  progressOutput[0] = "---- indexing stage ----"
-  readDir(args.path)
-  progressOutput[0] = "---- comparation stage ----"
-  groups = groupRecords()
-  groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
-  if fmt == Formats.json:
-    outFile = open(target, 'w')
-    outFile.write(groups_json)
-    outFile.close()
-  elif fmt == Formats.stdout:
-    print(groups_json)
-  else:
-    print("database saved to " + dbPath)
-  progressOutput[0] = "---- done ----"
-  dbEngine.close()
+executor = Executor(args)
+executor.prescan()
+executor.exec()
