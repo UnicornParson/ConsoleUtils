@@ -3,8 +3,17 @@ useful scripts
 
 ## dry.py
 search for a duplicate files (content based comparation)
+### Features:
+- hash-based comparation
+- archives scan (no recursive)
+- html/json/sqlite/plain reports
+
 ```
-usage: dry.py [-h] [-o TARGET] [-f FORMAT] [-v] [-q] path
+usage: dry [-h] [-o TARGET] [-f FORMAT] [-v] [-q] [-c] [--tmp TMP]
+           [--archlimit ARCHLIMIT] [--noarchive] [--progress] [--noprescan]
+           path
+
+Duplicates detector [Don't repeat yourself!]
 
 positional arguments:
   path                  folder to scan
@@ -14,7 +23,28 @@ optional arguments:
   -o TARGET, --target TARGET, --out TARGET
                         output target (default .)
   -f FORMAT, --format FORMAT, --fmt FORMAT
-                        output format <json|stdout|sqlite(default)
+                        output format <json|stdout|html|sqlite(default)
   -v, --verbose         print all messages
   -q, --quiet           no output
+  -c, --compare         content based comparation (hash based is default)
+  --tmp TMP             tmp folder. default: current. WARNING! script will
+                        extract archives to this folder
+  --archlimit ARCHLIMIT
+                        don't open archives that large than this limit (in
+                        Mb). 0 - no limit (default)
+  --noarchive           don't open archives, process as usual files
+  --progress            print progress line
+  --noprescan           skip prescan step (calculate summary counts for
+                        progress displayed.) it can take a long time on large
+                        folders
 ```
+### required python3 packages:
+ - BeautifulSoup
+ - reprint
+
+### 3rd-party:
+patool from https://wummel.github.io/patool/
+
+### Brokern windows / Todo:
+ - dont process .epub files as archives
+ - process archives as files too

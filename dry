@@ -1,16 +1,53 @@
 #!/usr/bin/env python3.8
+import sys
+if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
+    raise SystemExit("This program requires Python 3.5 or later.")
 import tempfile
 import argparse
-import sys
 import enum 
 import time
 import os
 import sqlite3
 import hashlib
+import shutil
 import json
+import datetime
 from reprint import output
+from bs4 import BeautifulSoup as bs
+from pathlib import PurePath
+from collections import OrderedDict
+from operator import itemgetter
 
-mstime = lambda: int(round(time.time() * 1000))
+patoolPath = os.path.dirname(os.path.abspath(__file__)) + "/3rdParty/patool"
+sys.path.append(patoolPath)
+sys.path.append(patoolPath + "/patoolib")
+
+import patoolib
+from patoolib.util import log_error, log_internal_error, PatoolError
+from patoolib.configuration import App
+
+
+def mstime() -> int:
+  return round(time.time() * 1000)
+def fssync():
+  os.system("sync")
+
+timingLoggerWrapper = None
+def timing(f):
+    def wrap(*args, **kwargs):
+        time1 = time.time()
+        sarg = str(args)
+        skwarg = str(kwargs)
+        ret = f(*args, **kwargs)
+        time2 = time.time()
+        msg = '{:s} function took {:.3f} ms. args({:s},k: {:s})'.format(f.__name__, ((time2 - time1) * 1000.0), sarg, skwarg)
+        if timingLoggerWrapper:
+          timingLoggerWrapper.verboseLog(msg)
+        else:
+          print("no logger")
+          sys.exit(-1)
+        return ret
+    return wrap
 #########################################################################################################
 class StrUtils:
   @staticmethod
@@ -29,6 +66,10 @@ class StrUtils:
     return "%dh %dm %ds %03dms" % (h, m, s, ms)
 
   @staticmethod
+  def readablePath(path) -> str:
+    return str(PurePath(path))
+
+  @staticmethod
   def secondsToHours(num) -> str:
     s = num % 60
     m = (num // 60)  % 60
@@ -45,8 +86,100 @@ class HasherFactory:
 
 class HTMLGenerator:
   def __init__(self):
-    pass
+    self.footer = """
+      </body>
+      </html>
+    """
+  def makeHeader(self, title) -> str:
+    return """
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>""" + title + """</title>
+          <meta charset="UTF-8">
+          <style>
+              body {
+                  background-color: #fff;
+                  margin: 4px;
+                  padding: 0px;
+                  font-family: monospace;
+              }
+              .TitleBox {
+                  color:rgb(121, 121, 138);
+                  font-size: 24px;
+                  border: 0;
+                  border-left: 16px solid #ffbf00;
+                  border-bottom: 1px solid #ffbf00;
+                  padding: 8px;
+                  border-radius: 5px;
+              }
+              table {
+                  width: 100%
+              }
+              td {
+                  border: 1px solid rgb(174, 174, 177);
+                  border-radius: 5px;
+                  color: #330;
+                  margin-left: 16px;
+              }
+              .tableHeaderCell {
+                  color: #000;
+                  background-color: rgb(110 110 111 / 23%);
+                  text-align: center;
+              }
+              .tableHeader {
+                  width: 70%;
+                  border: 1px solid #ffbf00;
+                  border-left: 16px solid #ffbf00;
+                  margin-top: 6px; 
+                  margin-right: 15%;
+                  margin-bottom: 2px;
+                  margin-left: 15%;
+                  border-radius: 5px;
+                  margin-top: 16px;
+                  padding-left: 16px;
+              }
+              hr {
+                margin-top: 6px;
+                margin-left: 20%;
+                margin-right: 20%;
+                padding: 0;
+                height: 10px;
+                border: none;
+                border-top: 1px solid #ffbf00;
+                box-shadow: 0 10px 10px -10px #ffbf00 inset;
+              }
+          </style>
+      </head>
+      <body>
+      <div class='TitleBox'>""" + title + """</div>
+          """
 
+  def makeSection(self, hash, size, files) -> str:
+    count = len(files)
+    text = "<div class='tableHeader'>%s. count: <b>%d</b>. total size: <b>%s</b></div>" % (hash, count, StrUtils.convert_bytes(size * count))
+    text += "<table><tr><td class='tableHeaderCell'>Path</td><td class='tableHeaderCell'>Size</td></tr>"
+    for path in files:
+      text += "<tr><td>%s</td><td>%s</td></tr>" % (StrUtils.readablePath(path), StrUtils.convert_bytes(size))
+    text += "</table>" + self.footer
+    return text
+
+  def generate(self, group, baseFolder) -> str:
+    htmltext = self.makeHeader("Duplicates report in %s" % baseFolder)
+      #groups[hash]["path"] = [i[0] for i in files]
+      #groups[hash]["size"] = originalFile[1]
+    for h in group.keys():
+      group[h]["h"] = h
+      group[h]["summ"] = len(group[h]["path"]) * group[h]["size"]
+      
+    sortedData = sorted(group.values(), key=itemgetter("summ"), reverse=True)
+    for entry in sortedData:
+      htmltext += self.makeSection(entry["h"], entry["size"], entry["path"])
+    htmltext += self.footer
+    soup = bs(htmltext, 'html.parser')
+    return soup.prettify()
+
+#########################################################################################################
 
 class DBEngine:
   def __init__(self):
@@ -141,23 +274,30 @@ class Logger:
     self.seed = seed
     self.createLogfile()
 
+  def isVerbose(self) -> bool:
+    return self.printMode in [LoggerMode.verboseMode, LoggerMode, progressVerbose]
+
   def createLogfile(self):
     if not self.seed:
       self.seed = str(mstime())
     logFileName = "./dry.%s.log" % (seed)
     self.logfile = open(logFileName, 'a')
-    self.logfile.write("start dry " + str(mstime()))
+    self.logfile.write("start dry %s\n" % str(mstime()))
     self.logfile.flush()
+
+  def writeMsg(self, msg: str):
+    if self.logfile:
+      dateString = str(datetime.datetime.now())
+      self.logfile.write("[%s] %s \n" % (dateString, msg))
+      self.logfile.flush()
 
   def logFatal(self, msg):
       self.logError(msg)
-      exit(1)
+      sys.exit(1)
 
   def logError(self, msg):
       print(str(msg), file=sys.stderr)
-      if self.logfile:
-        self.logfile.write("[ERROR] %s \n" % str(msg))
-        self.logfile.flush()
+      self.writeMsg("[ERROR] %s" % str(msg))
 
   def printIndexProgress(self, fname: str):
     if not self.progressOutputLine:
@@ -174,11 +314,9 @@ class Logger:
     self.saveOutputLines()
 
   def saveOutputLines(self):
-    if self.logfile:
-      self.logfile.write("progress:\n")
-      for line in self.progressOutputLine:
-        self.logfile.write(line + "\n")
-      self.logfile.flush()
+    self.writeMsg("progress:")
+    for line in self.progressOutputLine:
+      self.writeMsg(line)
 
   def printReduceProgress(self, hash, totalCount):
     if not self.progressOutputLine:
@@ -194,25 +332,21 @@ class Logger:
   def verboseLog(self, msg):
     if self.printMode in [LoggerMode.verboseMode, LoggerMode.progressVerbose]:
       print(msg)
-    if self.logfile:
-      self.logfile.write(str(msg))
-      self.logfile.flush()
+    self.writeMsg(str(msg))
 
   def log(self, msg):
     if self.printMode != LoggerMode.quietMode:
       print(msg)
-    if self.logfile:
-      self.logfile.write(str(msg))
-      self.logfile.flush()
+    self.writeMsg(str(msg))
 
 #########################################################################################################
 
 class Formats(enum.Enum):
   json = 0
   stdout = 1
-  ##html = 1
-  sqlite = 2
-  invalid = 3
+  html = 2
+  sqlite = 3
+  invalid = 4
 
   @staticmethod
   def parce(value) -> enum.Enum:
@@ -228,7 +362,7 @@ class Formats(enum.Enum):
       extentions = {
         Formats.json: ".json",
         Formats.stdout: ".txt",
-##        Formats.html: ".htm",
+        Formats.html: ".htm",
         Formats.sqlite: ".sqlite"
       }
       if val != Formats.invalid:
@@ -237,7 +371,6 @@ class Formats(enum.Enum):
       return ""
     
 #########################################################################################################
-
 class FolderProcessor:
   def __init__(self, logger: Logger, args, seed: str):
     self.logger = logger
@@ -246,6 +379,11 @@ class FolderProcessor:
     self.fmt = Formats.parce(args.format)
     self.comparatorBlockSize = 10240 #10k
     self.seed = seed
+    self.tmpFolder = ""
+    self.subseedIndex = 0
+    self.useprescan = not args.noprescan
+    self.currentArchive = ""
+
     if not seed:
       self.seed = mstime()
 
@@ -261,10 +399,6 @@ class FolderProcessor:
         sys.exit(1)
     self.compareContent = args.compare
 
-    #if Logger.progressPrint:
-    #  progressOutput = output(output_type="list", initial_len=1, interval=0)
-    #else:
-    # progressOutput = None
     self.target = args.target
     if not self.target:
       self.target = "."
@@ -273,6 +407,91 @@ class FolderProcessor:
     if self.fmt == Formats.sqlite and self.target:
       self.dbPath = self.target
     self.logger.verboseLog("in: %s, out[%s]: %s" %  (self.inPath, args.format, self.target))
+    self.tmpBase = "."
+
+    if args.tmp:
+      self.tmpBase = args.tmp
+    self.noarch = args.noarchive
+    self.archlimit = args.archlimit * (2**20)
+    astr = "ignore"
+    if not self.noarch:
+      astr = "\n\tprocess: yes\n\textract to %s\n\tlimit: %d Mb" % (self.tmpBase, args.archlimit)
+    self.logger.verboseLog("archive strategy:%s" % astr)
+
+  def getsubseed(self)-> str:
+    s = str(self.subseedIndex)
+    self.subseedIndex += 1
+    return s
+
+  def makeTmp(self, where: str) -> bool:
+    if self.tmpFolder:
+      self.cleanTmp()
+      if not where:
+        where = "."
+    self.tmpFolder = "%s/.dry%s_%s" % (where, seed, self.getsubseed())
+    self.logger.verboseLog("try to create tmp %s" % self.tmpFolder)
+    try:
+      os.makedirs(self.tmpFolder, exist_ok=True)
+      fssync()
+      return True
+    except:
+      self.logger.logError("cannot create tmp folder %s" % self.tmpFolder)
+      self.tmpFolder = ""
+      return False
+
+  def cleanTmp(self):
+    if self.tmpFolder:
+      try:
+        self.logger.verboseLog("try to remove tmp folder " + self.tmpFolder)
+        shutil.rmtree(self.tmpFolder)
+        self.logger.verboseLog("try to remove tmp folder %s - DONE" % self.tmpFolder)
+      except OSError as e:
+        self.logger.logError("Error: %s : %s" % (self.tmpFolder, e.strerror))
+      self.tmpFolder = ""
+
+  def isArchive(self, path):
+    if not os.path.isfile(path):
+      return False
+    try:
+      patoolib.get_archive_format(path)
+      return True
+    except:
+      return False
+
+  def archiveFilesCount(self, path) -> int:
+    if not os.path.isfile(path) or not self.isArchive(path):
+      return 0
+    list = patoolib.list_archive(path, verbosity = self.logger.isVerbose() ,program = None,interactive = False)
+    return len(list)
+
+  def readArchive(self, path: str)-> bool:
+
+    if not os.path.isfile(path):
+      self.logger.logError("%s is not a file" % path)
+      return False
+    if not self.isArchive(path):
+      self.logger.logError("%s is not an archive" % path)
+      return False
+    tmprc = self.makeTmp(self.tmpBase)
+    if not self.tmpFolder or not tmprc:
+      self.logger.logError("cannot make a tmp folder")
+      return False
+    
+    try:
+      self.currentArchive = path
+      self.logger.verboseLog("extract %s to %s" % (path, self.tmpFolder))
+      patoolib.extract_archive(path, outdir=self.tmpFolder)
+      self.logger.verboseLog("extract %s to %s - DONE" % (path, self.tmpFolder))
+    except:
+      self.logger.logError("extracting failed")
+      self.cleanTmp()
+      self.currentArchive = ""
+      return False
+
+    self.readDir(self.tmpFolder, path)
+    self.cleanTmp()
+    self.currentArchive = ""
+    return True
 
   def calc(self, fname: str) -> str:
     hasher = HasherFactory.createHasher()
@@ -319,40 +538,70 @@ class FolderProcessor:
       chunk2 = f2.read(self.comparatorBlockSize)
     return True
 
-  def readFile(self, path: str):
-    self.logger.verboseLog("read file " + path)
+  def readFile(self, path: str, fnamePrefix = ""):
+    printableFileName = path
+    if fnamePrefix:
+      printableFileName = "%s:/%s" % (fnamePrefix.replace("//",'/'), path.replace(self.tmpFolder,'').replace("//",'/'))
+
+    self.logger.verboseLog("read file %s" % printableFileName)
     try:
       hashStr = self.calc(path)
       fileSize = os.path.getsize(path)
     except KeyboardInterrupt:
       self.logger.log("Interrupted")
-      exit(-1)
+      sys.exit(-1)
     except Exception as e:
-      self.logger.logError("cannot read file %s  exception: %s" % (path, str(e)))
+      self.logger.logError("cannot read file %s  exception: %s" % (printableFileName, str(e)))
+      return
+
     self.logger.stats.filesCount += 1
     self.logger.stats.filesSize += fileSize
-    self.logger.printIndexProgress(path)
+    self.logger.printIndexProgress(printableFileName)
     self.logger.verboseLog("hash: %s size: %d" % (hashStr, fileSize))
-    self.dbEngine.writeFileInfo(path, hashStr, fileSize)
+    self.dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
   
-  def readDir(self, path: str):
+  def needProcessFileAsArchive(self, path) -> bool:
+    self.logger.verboseLog("check file " + path)
+    if self.noarch:
+      self.logger.verboseLog("no archive mode")
+      return False
+    if not self.isArchive(path):
+      self.logger.verboseLog("not an archive")
+      return False
+    if (self.archlimit > 0) and (os.path.getsize(path) > self.archlimit):
+      self.logger.verboseLog("archive is too large. ignore")
+      return False
+    if self.tmpFolder:
+      self.logger.verboseLog("already process an archive in %s. no recursive execution" % self.tmpFolder)
+      self.logger.verboseLog("current archive is %s" % self.currentArchive)
+      return False
+    self.logger.verboseLog("process %s as archove" % path)  
+    return True
+
+  @timing
+  def readDir(self, path: str, fnamePrefix = ""):
+    if not fnamePrefix:
+      fnamePrefix = path
     try:
       if os.path.islink(path): 
         self.logger.verboseLog("ignore link " + path)
-        return
-      if os.path.isfile(path):
-        self.readFile(path)
-        return
-      if os.path.isdir(path):
+      elif self.needProcessFileAsArchive(path):
+        self.readArchive(path)
+      elif os.path.isfile(path):
+        self.readFile(path, fnamePrefix)
+      elif os.path.isdir(path):
         self.logger.verboseLog("read folder " + path)
         for entry in os.listdir(path):
-          self.readDir(path + "/" + entry)
+          self.readDir(path + "/" + entry, fnamePrefix)
+      else:
+        self.logger.logError("ignore it")
     except KeyboardInterrupt:
       self.logger.log("Interrupted")
       exit(-1)
-    #except Exception as e:
-      #self.logger.logError("cannot process folder %s. skip. exception: %s" % (path, str(e)))
+    except Exception as e:
+      self.logger.logError("cannot process folder %s. skip. exception: %s" % (path, str(e)))
 
+  @timing
   def groupRecords(self):
     groups = {}
     nuHashes = self.dbEngine.notUniqueHashes()
@@ -364,17 +613,14 @@ class FolderProcessor:
       if len(files) <= 1:
         continue
       groups[hash] = {}
-      originalFile = files[0]
-      groups[hash]["path"] = originalFile[0]
-      groups[hash]["size"] = originalFile[1]
-      self.dbEngine.writeGroupRecord(hash, originalFile[0], originalFile[1])
-      for secondFile in files[1:]:
-        if (not self.compareContent) or self.compareFiles(originalFile[0], secondFile[0]):
-          groups[hash]["path"] = secondFile[0]
-          groups[hash]["size"] = secondFile[1]
-          self.dbEngine.writeGroupRecord(hash, secondFile[0], secondFile[1])
+      groups[hash]["path"] = [i[0] for i in files]
+      groups[hash]["size"] = files[0][1]
+      for filename in groups[hash]["path"]:
+        self.dbEngine.writeGroupRecord(hash, filename, groups[hash]["size"])
+          
     return groups
 
+  @timing
   def scandir(self, path: str):
     try:
       if os.path.islink(path):
@@ -382,20 +628,25 @@ class FolderProcessor:
       if os.path.isdir(path):
         for entry in os.listdir(path):
           self.scandir(path + "/" + entry)
-      else:
+      elif self.isArchive(path):
         self.logger.stats.totalSize += os.path.getsize(path)
         self.logger.stats.totalCount += 1
+      else:
+        self.logger.stats.totalSize += os.path.getsize(path)
+        self.logger.stats.totalCount += self.archiveFilesCount(path)
     except KeyboardInterrupt:
       exit(-1)
     except Exception as e:
       self.logger.logError("cannot scan %s. error: %s" % (path, str(e)))
 
+  @timing
   def prescan(self):
     if not self.inPath:
       self.logger.logFatal("no input path")
     self.scandir(self.inPath)
     self.logger.verboseLog("prescan stage: done. found %d files (%s)" % (self.logger.stats.totalCount, StrUtils.convert_bytes(self.logger.stats.totalSize))) 
 
+  @timing
   def exec(self):
     with output(output_type="list", initial_len=self.logger.progressPanelLinesCount, interval = 0) as self.logger.progressOutputLine:
       if not self.logger.progressOutputLine:
@@ -405,6 +656,7 @@ class FolderProcessor:
       self.readDir(self.inPath)
       self.logger.verboseLog("indexing stage: done")
       self.logger.progressOutputLine[0] = "----[ comparation stage ]----"
+      fssync()
       groups = self.groupRecords()
       self.logger.verboseLog("comparation stage: done")
       groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
@@ -414,6 +666,12 @@ class FolderProcessor:
         outFile.close()
       elif self.fmt == Formats.stdout:
         print(groups_json)
+      elif self.fmt == Formats.html:
+        generator = HTMLGenerator()
+        htmlText = generator.generate(groups, self.inPath)
+        htmlFile = open(self.target, 'w')
+        htmlFile.write(htmlText)
+        htmlFile.close()
       else:
         self.logger.log("database saved to " + self.dbPath)
       self.logger.progressOutputLine[0] = "----[ done ]----"
@@ -421,12 +679,17 @@ class FolderProcessor:
 
 parser = argparse.ArgumentParser(add_help=True, description="Duplicates detector [Don't repeat yourself!]")
 parser.add_argument("-o", "--target", "--out", action="store", default=".", help="output target (default .)")
-parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|sqlite(default)")
+parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|html|sqlite(default)")
 parser.add_argument("-v", "--verbose", action="store_true", help="print all messages")
 parser.add_argument("-q", "--quiet", action="store_true", help="no output")
 parser.add_argument("-c", "--compare", action="store_true", help="content based comparation (hash based is default)")
+parser.add_argument("--tmp", action="store", default=".", help="tmp folder. default: current. WARNING! script will extract archives to this folder")
+parser.add_argument("--archlimit", type=int, action="store", default="0", help="don't open archives that large than this limit (in Mb). 0 - no limit (default)")
+parser.add_argument("--noarchive", action="store_true", help="don't open archives, process as usual files")
 parser.add_argument("--progress", action="store_true", help="print progress line")
+parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
 parser.add_argument("path", help="folder to scan")
+
 args = parser.parse_args()
 seed = str(mstime())
 lm = LoggerMode.verboseMode
@@ -439,8 +702,8 @@ elif args.verbose:
 else:
   loggerMode = LoggerMode.quietMode
 logger = Logger(loggerMode, seed)
-
-
+timingLoggerWrapper = logger
 executor = FolderProcessor(logger, args, seed)
-executor.prescan()
+if not args.noprescan:
+  executor.prescan()
 executor.exec()
