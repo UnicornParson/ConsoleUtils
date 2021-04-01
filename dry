@@ -14,7 +14,7 @@ import json
 import datetime
 from reprint import output
 from bs4 import BeautifulSoup as bs
-from pathlib import PurePath
+from pathlib import *
 from collections import OrderedDict
 from operator import itemgetter
 
@@ -383,7 +383,7 @@ class FolderProcessor:
     self.subseedIndex = 0
     self.useprescan = not args.noprescan
     self.currentArchive = ""
-
+    self.archiveExclusions = [".epub", "epub", "chm", ".chm"]
     if not seed:
       self.seed = mstime()
 
@@ -452,6 +452,8 @@ class FolderProcessor:
   def isArchive(self, path):
     if not os.path.isfile(path):
       return False
+    if PurePath(path).suffix.lower() in self.archiveExclusions:
+      return False
     try:
       patoolib.get_archive_format(path)
       return True
@@ -465,7 +467,6 @@ class FolderProcessor:
     return len(list)
 
   def readArchive(self, path: str)-> bool:
-
     if not os.path.isfile(path):
       self.logger.logError("%s is not a file" % path)
       return False
@@ -586,6 +587,7 @@ class FolderProcessor:
       if os.path.islink(path): 
         self.logger.verboseLog("ignore link " + path)
       elif self.needProcessFileAsArchive(path):
+        self.readFile(path, fnamePrefix)
         self.readArchive(path)
       elif os.path.isfile(path):
         self.readFile(path, fnamePrefix)
