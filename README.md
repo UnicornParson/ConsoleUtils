@@ -1,8 +1,9 @@
 # ConsoleUtils
-useful scripts
+useful console scripts
 
-## dry.py
+## dry
 search for a duplicate files (content based comparation)
+required python 3.5 or newer
 ### Features:
 - hash-based comparation
 - archives scan (no recursive)
@@ -46,5 +47,21 @@ optional arguments:
 patool from https://wummel.github.io/patool/
 
 ### Brokern windows / Todo:
- - dont process .epub files as archives
- - process archives as files too
+- multiprocessing version in progress. 
+  temporary results in dryMP file
+
+
+## csvmerger
+merge some scv files into one
+required python 3.5 or newer
+
+usage: csvmerger [-h] [-H] file [file ...]
+
+Merge some csv file into one
+
+positional arguments:
+  file           list of input files
+
+optional arguments:
+  -h, --help     show this help message and exit
+  -H, --headers  files has headers

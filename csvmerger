@@ -1,0 +1,28 @@
+#!/usr/bin/env python3.8
+import sys
+if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
+  raise SystemExit("This program requires Python 3.5 or later.")
+import csv
+import argparse
+
+if __name__ == '__main__':
+  parser = argparse.ArgumentParser(add_help=True, description="Merge some csv file into one")      
+  parser.add_argument("-H", "--headers", action="store_true", help="files has headers")
+  parser.add_argument('file', help="list of input files", type=argparse.FileType('r'), nargs='+')
+  args = parser.parse_args()
+  counter = 0
+  headersWrote = not args.headers
+  with open('merged.csv', 'w', newline='') as outfile:
+    writer = csv.writer(outfile, delimiter=';', quoting=csv.QUOTE_NONE)
+    for csvfile in args.file:
+      firstLine = True
+      reader = csv.reader(csvfile, delimiter=';')
+      for row in reader:
+        counter += 1
+        if firstLine and headersWrote:
+          firstLine = False
+          continue
+        headersWrote = True
+        firstLine = False
+        writer.writerow(row)
+        print("%d rows are merged" % counter)
