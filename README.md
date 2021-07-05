@@ -55,6 +55,7 @@ patool from https://wummel.github.io/patool/
 merge some scv files into one
 required python 3.5 or newer
 
+```
 usage: csvmerger [-h] [-H] file [file ...]
 
 Merge some csv file into one
@@ -65,3 +66,4 @@ positional arguments:
 optional arguments:
   -h, --help     show this help message and exit
   -H, --headers  files has headers
+```
