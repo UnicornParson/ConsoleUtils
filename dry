@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup as bs
 from pathlib import *
 from collections import OrderedDict
 from operator import itemgetter
+import traceback
 
 patoolPath = os.path.dirname(os.path.abspath(__file__)) + "/3rdParty/patool"
 sys.path.append(patoolPath)
@@ -310,7 +311,7 @@ class Logger:
     self.createLogfile()
 
   def isVerbose(self) -> bool:
-    return self.printMode in [LoggerMode.verboseMode, LoggerMode, progressVerbose]
+    return self.printMode in [LoggerMode.verboseMode, LoggerMode.progressVerbose]
 
   def createLogfile(self):
     if not self.seed:
@@ -469,8 +470,9 @@ class FolderProcessor:
       os.makedirs(self.tmpFolder, exist_ok=True)
       fssync()
       return True
-    except:
-      self.logger.logError("cannot create tmp folder %s" % self.tmpFolder)
+    except Exception as e:
+      self.logger.logError("cannot create tmp folder %s (%s)" % (self.tmpFolder, str(e)))
+      traceback.print_tb(e.__traceback__)
       self.tmpFolder = ""
       return False
 
@@ -482,6 +484,7 @@ class FolderProcessor:
         self.logger.verboseLog("try to remove tmp folder %s - DONE" % self.tmpFolder)
       except OSError as e:
         self.logger.logError("Error: %s : %s" % (self.tmpFolder, e.strerror))
+        traceback.print_tb(e.__traceback__)
       self.tmpFolder = ""
 
   def isArchive(self, path):
@@ -498,8 +501,13 @@ class FolderProcessor:
   def archiveFilesCount(self, path) -> int:
     if not os.path.isfile(path) or not self.isArchive(path):
       return 0
+    if PurePath(path).suffix.lower() == ".rar":
+      ## rar cannot be listed
+      return 0
     list = patoolib.list_archive(path, verbosity = self.logger.isVerbose() ,program = None,interactive = False)
-    return len(list)
+    if list:
+      return len(list)
+    return 0
 
   def readArchive(self, path: str)-> bool:
     if not os.path.isfile(path):
@@ -518,8 +526,9 @@ class FolderProcessor:
       self.logger.verboseLog("extract %s to %s" % (path, self.tmpFolder))
       patoolib.extract_archive(path, outdir=self.tmpFolder)
       self.logger.verboseLog("extract %s to %s - DONE" % (path, self.tmpFolder))
-    except:
-      self.logger.logError("extracting failed")
+    except Exception as e:
+      self.logger.logError("extracting failed" + str(e))
+      traceback.print_tb(e.__traceback__)
       self.cleanTmp()
       self.currentArchive = ""
       return False
@@ -589,6 +598,7 @@ class FolderProcessor:
       sys.exit(-1)
     except Exception as e:
       self.logger.logError("cannot read file %s  exception: %s" % (printableFileName, str(e)))
+      traceback.print_tb(e.__traceback__)
       return
 
     self.logger.stats.filesCount += 1
@@ -638,6 +648,7 @@ class FolderProcessor:
       exit(-1)
     except Exception as e:
       self.logger.logError("cannot process folder %s. skip. exception: %s" % (path, str(e)))
+      traceback.print_tb(e.__traceback__)
 
   @timing
   def groupRecords(self):
@@ -677,6 +688,7 @@ class FolderProcessor:
       exit(-1)
     except Exception as e:
       self.logger.logError("cannot scan %s. error: %s" % (path, str(e)))
+      traceback.print_tb(e.__traceback__)
 
   @timing
   def prescan(self):
