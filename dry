@@ -1,22 +1,23 @@
 #!/usr/bin/env python3.8
 import sys
+
+import dry_internal
 if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
     raise SystemExit("This program requires Python 3.5 or later.")
-import tempfile
+
 import argparse
-import enum 
-import time
+
 import os
-import sqlite3
-import hashlib
+
+
 import shutil
 import json
 import datetime
 from reprint import output
-from bs4 import BeautifulSoup as bs
+
 from pathlib import *
 from collections import OrderedDict
-from operator import itemgetter
+
 import traceback
 import configparser
 
@@ -29,285 +30,8 @@ import patoolib
 from patoolib.util import log_error, log_internal_error, PatoolError
 from patoolib.configuration import App
 
-class ParamsError(Exception):
-  pass
-
-
-def __init__(self) -> None:
-    self.timingLoggerWrapper = None
-    
-def mstime() -> int:
-  return round(time.time() * 1000)
-def fssync():
-  os.system("sync")
-
-class TimingUtil:
-  timingLoggerWrapper = None
-
-  @staticmethod
-  def timing_impl(f):
-      def wrap(*args, **kwargs):
-          time1 = time.time()
-          sarg = str(args)
-          skwarg = str(kwargs)
-          ret = f(*args, **kwargs)
-          time2 = time.time()
-          msg = '{:s} function took {:.3f} ms. args({:s},k: {:s})'.format(f.__name__, ((time2 - time1) * 1000.0), sarg, skwarg)
-          if TimingUtil.timingLoggerWrapper:
-            TimingUtil.timingLoggerWrapper.verboseLog(msg)
-          else:
-            print("no logger")
-            sys.exit(-1)
-          return ret
-      return wrap
-
-def timing(f):
-  return TimingUtil.timing_impl(f)
-
-
-#########################################################################################################
-class StrUtils:
-  @staticmethod
-  def convert_bytes(num) -> str:
-    for x in ['B', 'KB', 'MB', 'GB', 'TB']:
-      if num < 1024.0:
-        return "%3.1f%s" % (num, x)
-      num /= 1024.0
-
-  @staticmethod
-  def msToHours(num) -> str:
-    ms = num % 1000
-    s = (num // 1000) % 60
-    m = (num // 60000)  % 60
-    h = num // (60 * 60 * 1000)
-    return "%dh %dm %ds %03dms" % (h, m, s, ms)
-
-  @staticmethod
-  def readablePath(path) -> str:
-    return str(PurePath(path))
-
-  @staticmethod
-  def secondsToHours(num) -> str:
-    s = num % 60
-    m = (num // 60)  % 60
-    h = num // 3600
-    return "%dh %dm %ds" % (h, m, s)
-#########################################################################################################
-
-class HasherFactory:
-  @staticmethod
-  def createHasher():
-    return hashlib.sha512()
-
-#########################################################################################################
-
-class HTMLGenerator:
-  def __init__(self):
-    self.footer = """
-      </body>
-      </html>
-    """
-  def makeHeader(self, title) -> str:
-    return """
-      <!DOCTYPE html>
-      <html>
-      <head>
-          <title>""" + title + """</title>
-          <link href="data:image/x-icon;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAACf0lEQVQ4jX2TXUjTYRTGf/+5zA+GOhM/lp+gWU5xhUQRwSRIoaCMwsSyEOqmm+qiJCJQociCLgJvwiAqoYgoCLwR6UJLM0tUTKjNKRPdnCun2NK9p4v/JlriAy/Py8t7Hp7nHI52v8MphWnxAIgIiCAiiCj9rgREEQqFGJvwNTacLrvFWrwb9MhiUEng9+Zn2uOTMdesXGjpqF5bbwRQAiGlP3Rl5bERdnR3kmVJ5dJx2+PA/CtHe9OJPl1A1n+0Tzg2FJhyTzI948ViToqpOljwuh0sAEYRXeHLkFPn4XEAbNYcbMW5tLV3ARAMBjlWYcO/8IflFZXh9issSQaMhAVsxbnrOILz1XZEwjEFojQwGGZWI2/qoNSqOxBABGpP2sEACfFbefa5MQcYN/BvE8KIFK3lkOijNqfP0+/tHim9k1ejve13i92avmqJSMEa20rpDMJMYJhHo3dJzkykr/fTihH1fwQRsBXnYLNm0/b8PUqBpsGhwyk8HGnCnGFidOyb8szM1hsiPVi1DWxLNpFqEVp7blNpLyQjLYmy/bE8GLxJXPIWnN9d/BhzXvx63fFEe/PRJeWlmayEwrYRvAsOno60kpKeiHdinqpdtdzrv4EpJRaPe5aEqX1cPdWslWyP0qcgAgNDTgRwTXrJL4jhjwSZw8uvJB8tg9eIM8XhnfRRnlFHQow1Mn0MhAUi3fb9XKS3z0eFuZ5p5xxLi0tEE43P7edA2hkqd57Vlywc26iUQtNgtzUXJVBSlItSIAgN2S00d17B75+jPL+GI0V1RBvDWxsRGHZ4UMsrCIIK6WssKnxEOJp2mRcTLzEH9tDzYQCUYnjUxbmqvQD8BfgNemkN6Z12AAAAAElFTkSuQmCC" rel="icon" type="image/x-icon" />
-          <meta charset="UTF-8">
-          <style>
-              body {
-                  background-color: #fff;
-                  margin: 4px;
-                  padding: 0px;
-                  font-family: monospace;
-              }
-              .TitleBox {
-                  color:rgb(121, 121, 138);
-                  font-size: 24px;
-                  border: 0;
-                  border-left: 16px solid #ffbf00;
-                  border-bottom: 1px solid #ffbf00;
-                  padding: 8px;
-                  border-radius: 5px;
-              }
-              table {
-                  width: 100%
-              }
-              td {
-                  border: 1px solid rgb(174, 174, 177);
-                  border-radius: 5px;
-                  color: #330;
-                  margin-left: 16px;
-              }
-              .tableHeaderCell {
-                  color: #000;
-                  background-color: rgb(110 110 111 / 23%);
-                  text-align: center;
-              }
-              .tableHeader {
-                  width: 70%;
-                  border: 1px solid #ffbf00;
-                  border-left: 16px solid #ffbf00;
-                  margin-top: 6px; 
-                  margin-right: 15%;
-                  margin-bottom: 2px;
-                  margin-left: 15%;
-                  border-radius: 5px;
-                  margin-top: 16px;
-                  padding-left: 16px;
-              }
-              hr {
-                margin-top: 6px;
-                margin-left: 20%;
-                margin-right: 20%;
-                padding: 0;
-                height: 10px;
-                border: none;
-                border-top: 1px solid #ffbf00;
-                box-shadow: 0 10px 10px -10px #ffbf00 inset;
-              }
-              pre {
-                background-color: #263238;
-                color: #CCFF90;
-                margin: 6px;
-                padding: 16px;
-                border-radius: 6px;
-              }
-              pre::selection {
-                background-color: #CCFF90;
-                color: #263238;
-              }
-              .nodupLine {
-                font-size: 24px;
-                color: white;
-                text-decoration: none;
-                padding: .8em 1em calc(.8em + 3px);
-                border-radius: 3px;
-                background: rgb(64,199,129);
-                box-shadow: 0 -3px rgb(53 167 110) inset;
-                transition: 0.2s;
-              }
-          </style>
-      </head>
-      <body>
-      <div class='TitleBox'>""" + title + """</div>
-          """
-
-  def makeSection(self, hash, size, files) -> str:
-    count = len(files)
-    text = "<div class='tableHeader'>%s. count: <b>%d</b>. total size: <b>%s</b></div>" % (hash, count, StrUtils.convert_bytes(size * count))
-    text += "<table><tr><td class='tableHeaderCell'>Path</td><td class='tableHeaderCell'>Size</td></tr>"
-    for path in files:
-      text += "<tr><td>%s</td><td>%s</td></tr>" % (StrUtils.readablePath(path), StrUtils.convert_bytes(size))
-    text += "</table>" + self.footer
-    return text
-
-  def makeRmSection(self, sectionslist) -> str:
-    text = "<br><div class='tableHeader'>Remove duplicates shell command</span><pre>\n#!/bin/bash\n\n"
-    for entry in sectionslist:
-      for fname in entry["path"][1:]:
-        text += "rm -v \"%s\"\n" % fname
-    if not sectionslist:
-      text += "# no duplicartes\n"
-    text += "\necho \"done!\"\n</pre><br>"
-    return text
-      
-
-  def generate(self, group, baseFolder) -> str:
-    htmltext = self.makeHeader("Duplicates report in %s" % baseFolder)
-    if group:
-      for h in group.keys():
-        group[h]["h"] = h
-        group[h]["summ"] = len(group[h]["path"]) * group[h]["size"]
-        
-      sortedData = sorted(group.values(), key=itemgetter("summ"), reverse=True)
-      for entry in sortedData:
-        htmltext += self.makeSection(entry["h"], entry["size"], entry["path"])
-      htmltext += self.makeRmSection(sortedData)
-    else: # nodup
-      htmltext += "<div class='nodupLine'>No duplicates in %s</div>" % baseFolder
-    htmltext += self.footer
-    soup = bs(htmltext, 'html.parser')
-    return soup.prettify()
-
-#########################################################################################################
-
-class DBEngine:
-  def __init__(self):
-    self.connection = None
-    self.cursor = None
-    self.path = ""
-
-  def open(self, path:str):
-    self.path = path
-    self.connection = sqlite3.connect(path)
-    self.cursor = self.connection.cursor()
-    self.makeDb()
-
-  def checkDb(self):
-    if not self.cursor or not self.connection:
-      raise Exception('dbEngine', 'not opened')
-
-  def makeDb(self):
-    self.checkDb()
-    self.cursor.execute("""
-      CREATE TABLE 'files' (
-        'path' TEXT NOT NULL UNIQUE,
-        'hash'  TEXT NOT NULL,
-        'size' INTEGER NOT NULL);
-    """)
-    self.cursor.execute("""
-      CREATE TABLE 'result' (
-      'groupId' TEXT NOT NULL,
-      'path'  TEXT NOT NULL,
-      'size'  INTEGER NOT NULL);
-    """)
-
-    self.cursor.execute("""CREATE INDEX 'hash_i' ON 'files' ('hash');""")
-    self.connection.commit()
-
-  def close(self):
-    self.cursor = None
-    if self.connection:
-      self.connection.close()
-    self.connection = None
-
-  def notUniqueHashes(self):
-    self.checkDb()
-    rc = []
-    for row in self.cursor.execute("SELECT DISTINCT hash FROM files GROUP BY hash HAVING COUNT(*) > 1"):
-      rc.append(row[0])
-    return rc
-
-  def filesByHash(self, hash: str):
-    self.checkDb()
-    rc = []
-    for row in self.cursor.execute("SELECT path, size FROM files  WHERE hash='" + hash + "';"):
-      rc.append((row[0], row[1]))
-    return rc
-
-  def writeFileInfo(self, path: str, hash: str, size: int):
-    self.checkDb()
-    self.cursor.execute("INSERT INTO files VALUES (?,?,?)", (path, hash, size))
-    self.connection.commit()
-
-  def writeGroupRecord(self, hash: str, fname: str, size: int):
-    self.checkDb()
-    self.cursor.execute("INSERT INTO result VALUES (?,?,?)", (hash, fname, size))
-    self.connection.commit()
-
-#########################################################################################################
-
-class Stats:
-  def __init__(self):
-    self.totalCount = 0
-    self.totalSize = 0
-    self.startTime = mstime()
-    self.filesCount = 0
-    self.filesSize = 0
-
-#########################################################################################################
+from common import *
+from dry_internal import *
 
 class LoggerMode(enum.Enum):
   verboseMode = 0
@@ -332,7 +56,7 @@ class Logger:
   def createLogfile(self):
     if not self.seed:
       self.seed = str(mstime())
-    logFileName = "%s/dry.%s.log" % (bindir, self.seed)
+    logFileName = "%s/log/dry.%s.log" % (bindir, self.seed)
     self.logfile = open(logFileName, 'a')
     self.logfile.write("start dry %s\n" % str(mstime()))
     self.logfile.flush()
@@ -360,9 +84,9 @@ class Logger:
     timediff = mstime() - self.stats.startTime
     self.progressOutputLine[1] = "Files %d of %d done (%s of %s)" % (self.stats.filesCount,
                                                             self.stats.totalCount,
-                                                            StrUtils.convert_bytes(self.stats.filesSize),
-                                                            StrUtils.convert_bytes(self.stats.totalSize))
-    self.progressOutputLine[2] = "duration: %s" % (StrUtils.msToHours(timediff))
+                                                            common.StrUtils.convert_bytes(self.stats.filesSize),
+                                                            common.StrUtils.convert_bytes(self.stats.totalSize))
+    self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
     self.saveOutputLines()
 
   def saveOutputLines(self):
@@ -378,7 +102,7 @@ class Logger:
 
     timediff = mstime() - self.stats.startTime
     self.progressOutputLine[1] = "[{%d} of {%d}] {%s}" % (self.hashIndex, totalCount, hash)
-    self.progressOutputLine[2] = "duration: %s" % (StrUtils.msToHours(timediff))
+    self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
     self.saveOutputLines()
 
   def verboseLog(self, msg):
@@ -393,34 +117,7 @@ class Logger:
 
 #########################################################################################################
 
-class Formats(enum.Enum):
-  json = 0
-  stdout = 1
-  html = 2
-  sqlite = 3
-  invalid = 4
 
-  @staticmethod
-  def parce(value) -> enum.Enum:
-      if value == None:
-        return Formats.invalid
-      for m, mm in Formats.__members__.items():
-        if m == value.lower():
-          return mm
-      return Formats.invalid
-
-  @staticmethod
-  def ext(val) -> str:
-      extentions = {
-        Formats.json: ".json",
-        Formats.stdout: ".txt",
-        Formats.html: ".htm",
-        Formats.sqlite: ".sqlite"
-      }
-      if val != Formats.invalid:
-        return extentions[val]
-      print("invalid format" + val.name)
-      return ""
     
 #########################################################################################################
 class FolderProcessor:
@@ -484,7 +181,7 @@ class FolderProcessor:
       self.cleanTmp()
       if not where:
         where = "."
-    self.tmpFolder = "%s/.dry%s_%s" % (where, seed, self.getsubseed())
+    self.tmpFolder = "%s/.dry%s_%s" % (where, self.seed, self.getsubseed())
     self.logger.verboseLog("try to create tmp %s" % self.tmpFolder)
     try:
       os.makedirs(self.tmpFolder, exist_ok=True)
@@ -715,7 +412,7 @@ class FolderProcessor:
     if not self.inPath:
       self.logger.logFatal("no input path")
     self.scandir(self.inPath)
-    self.logger.verboseLog("prescan stage: done. found %d files (%s)" % (self.logger.stats.totalCount, StrUtils.convert_bytes(self.logger.stats.totalSize))) 
+    self.logger.verboseLog("prescan stage: done. found %d files (%s)" % (self.logger.stats.totalCount, common.StrUtils.convert_bytes(self.logger.stats.totalSize))) 
 
   @timing
   def exec(self):
@@ -738,7 +435,7 @@ class FolderProcessor:
       elif self.fmt == Formats.stdout:
         print(groups_json)
       elif self.fmt == Formats.html:
-        generator = HTMLGenerator()
+        generator = HTMLGenerator.HTMLGenerator()
         htmlText = generator.generate(groups, self.inPath)
         htmlFile = open(self.target, 'w')
         htmlFile.write(htmlText)
@@ -775,7 +472,7 @@ def main() -> int :
   else:
     loggerMode = LoggerMode.quietMode
   logger = Logger(loggerMode, seed)
-  TimingUtil.timingLoggerWrapper = logger
+  TimingUtil.CTimingUtil.timingLoggerWrapper = logger
   executor = None
   try:
     executor = FolderProcessor(logger, args, seed)
