@@ -67,3 +67,7 @@ optional arguments:
   -h, --help     show this help message and exit
   -H, --headers  files has headers
 ```
+
+## ScreenshotUtil
+Console util to make a screenshot
+
