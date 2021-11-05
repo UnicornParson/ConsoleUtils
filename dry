@@ -18,8 +18,10 @@ from pathlib import *
 from collections import OrderedDict
 from operator import itemgetter
 import traceback
+import configparser
 
-patoolPath = os.path.dirname(os.path.abspath(__file__)) + "/3rdParty/patool"
+bindir = os.path.dirname(os.path.abspath(__file__))
+patoolPath = bindir + "/3rdParty/patool"
 sys.path.append(patoolPath)
 sys.path.append(patoolPath + "/patoolib")
 
@@ -27,28 +29,42 @@ import patoolib
 from patoolib.util import log_error, log_internal_error, PatoolError
 from patoolib.configuration import App
 
+class ParamsError(Exception):
+  pass
 
+
+def __init__(self) -> None:
+    self.timingLoggerWrapper = None
+    
 def mstime() -> int:
   return round(time.time() * 1000)
 def fssync():
   os.system("sync")
 
-timingLoggerWrapper = None
+class TimingUtil:
+  timingLoggerWrapper = None
+
+  @staticmethod
+  def timing_impl(f):
+      def wrap(*args, **kwargs):
+          time1 = time.time()
+          sarg = str(args)
+          skwarg = str(kwargs)
+          ret = f(*args, **kwargs)
+          time2 = time.time()
+          msg = '{:s} function took {:.3f} ms. args({:s},k: {:s})'.format(f.__name__, ((time2 - time1) * 1000.0), sarg, skwarg)
+          if TimingUtil.timingLoggerWrapper:
+            TimingUtil.timingLoggerWrapper.verboseLog(msg)
+          else:
+            print("no logger")
+            sys.exit(-1)
+          return ret
+      return wrap
+
 def timing(f):
-    def wrap(*args, **kwargs):
-        time1 = time.time()
-        sarg = str(args)
-        skwarg = str(kwargs)
-        ret = f(*args, **kwargs)
-        time2 = time.time()
-        msg = '{:s} function took {:.3f} ms. args({:s},k: {:s})'.format(f.__name__, ((time2 - time1) * 1000.0), sarg, skwarg)
-        if timingLoggerWrapper:
-          timingLoggerWrapper.verboseLog(msg)
-        else:
-          print("no logger")
-          sys.exit(-1)
-        return ret
-    return wrap
+  return TimingUtil.timing_impl(f)
+
+
 #########################################################################################################
 class StrUtils:
   @staticmethod
@@ -316,7 +332,7 @@ class Logger:
   def createLogfile(self):
     if not self.seed:
       self.seed = str(mstime())
-    logFileName = "./dry.%s.log" % (seed)
+    logFileName = "%s/dry.%s.log" % (bindir, self.seed)
     self.logfile = open(logFileName, 'a')
     self.logfile.write("start dry %s\n" % str(mstime()))
     self.logfile.flush()
@@ -420,19 +436,23 @@ class FolderProcessor:
     self.useprescan = not args.noprescan
     self.currentArchive = ""
     self.archiveExclusions = [".epub", "epub", "chm", ".chm"]
+
+    self.defaultConfigFname = bindir + "/config.ini"
+    self.defaultConfig = configparser.ConfigParser()
+    if os.path.isfile(self.defaultConfigFname):
+      self.defaultConfig.read(self.defaultConfigFname)
+    #if "DRY" in self.defaultConfig.sections()
+
     if not seed:
       self.seed = mstime()
 
     if self.fmt == Formats.invalid:
-        logger.logError("invalid format " + args.format)
-        parser.print_help(sys.stderr)
-        sys.exit(1)
+      raise ParamsError("invalid format " + args.format)
 
     self.inPath = args.path
     if not os.path.isdir(self.inPath):
-        logger.logError("input must be a folder")
-        parser.print_help(sys.stderr)
-        sys.exit(1)
+      raise ParamsError("input must be a folder")
+
     self.compareContent = args.compare
 
     self.target = args.target
@@ -728,33 +748,45 @@ class FolderProcessor:
       self.logger.progressOutputLine[0] = "----[ done ]----"
       self.dbEngine.close()
 
-parser = argparse.ArgumentParser(add_help=True, description="Duplicates detector [Don't repeat yourself!]")
-parser.add_argument("-o", "--target", "--out", action="store", default=".", help="output target (default .)")
-parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|html|sqlite(default)")
-parser.add_argument("-v", "--verbose", action="store_true", help="print all messages")
-parser.add_argument("-q", "--quiet", action="store_true", help="no output")
-parser.add_argument("-c", "--compare", action="store_true", help="content based comparation (hash based is default)")
-parser.add_argument("--tmp", action="store", default=".", help="tmp folder. default: current. WARNING! script will extract archives to this folder")
-parser.add_argument("--archlimit", type=int, action="store", default="0", help="don't open archives that large than this limit (in Mb). 0 - no limit (default)")
-parser.add_argument("--noarchive", action="store_true", help="don't open archives, process as usual files")
-parser.add_argument("--progress", action="store_true", help="print progress line")
-parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
-parser.add_argument("path", help="folder to scan")
 
-args = parser.parse_args()
-seed = str(mstime())
-lm = LoggerMode.verboseMode
-if args.verbose and args.progress:
-  loggerMode = LoggerMode.progressVerbose
-elif args.progress:
-  loggerMode = LoggerMode.progressAndErrors
-elif args.verbose:
-  loggerMode = LoggerMode.verboseMode
-else:
-  loggerMode = LoggerMode.quietMode
-logger = Logger(loggerMode, seed)
-timingLoggerWrapper = logger
-executor = FolderProcessor(logger, args, seed)
-if not args.noprescan:
-  executor.prescan()
-executor.exec()
+def main() -> int :
+  parser = argparse.ArgumentParser(add_help=True, description="Duplicates detector [Don't repeat yourself!]")
+  parser.add_argument("-o", "--target", "--out", action="store", default=".", help="output target (default .)")
+  parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|html|sqlite(default)")
+  parser.add_argument("-v", "--verbose", action="store_true", help="print all messages")
+  parser.add_argument("-q", "--quiet", action="store_true", help="no output")
+  parser.add_argument("-c", "--compare", action="store_true", help="content based comparation (hash based is default)")
+  parser.add_argument("--tmp", action="store", default=".", help="tmp folder. default: current. WARNING! script will extract archives to this folder")
+  parser.add_argument("--archlimit", type=int, action="store", default="0", help="don't open archives that large than this limit (in Mb). 0 - no limit (default)")
+  parser.add_argument("--noarchive", action="store_true", help="don't open archives, process as usual files")
+  parser.add_argument("--progress", action="store_true", help="print progress line")
+  parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
+  parser.add_argument("path", help="folder to scan")
+
+  args = parser.parse_args()
+  seed = str(mstime())
+  lm = LoggerMode.verboseMode
+  if args.verbose and args.progress:
+    loggerMode = LoggerMode.progressVerbose
+  elif args.progress:
+    loggerMode = LoggerMode.progressAndErrors
+  elif args.verbose:
+    loggerMode = LoggerMode.verboseMode
+  else:
+    loggerMode = LoggerMode.quietMode
+  logger = Logger(loggerMode, seed)
+  TimingUtil.timingLoggerWrapper = logger
+  executor = None
+  try:
+    executor = FolderProcessor(logger, args, seed)
+    if not args.noprescan:
+      executor.prescan()
+    executor.exec()
+  except ParamsError as e:
+    logger.logError(str(e))
+    parser.print_help(sys.stderr)
+    return -1
+  return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
