@@ -125,10 +125,12 @@ class ConfigReader:
     self.fmt = None
     self.tmp = None
     self.noarch = None
+    self.noprescan = None
     self.rootTag = "DRY"
     self.fmtTag = "fmt"
     self.tmpTag = "tmp"
     self.noarchTag = "noarch"
+    self.noprescanTag = "noprescan"
     self.parser = configparser.ConfigParser()
     self.load()
 
@@ -138,6 +140,15 @@ class ConfigReader:
     if s.lower() == "no" or s.lower() == "false":
       return False
     return None
+
+  def keyExist(self, key: str, section)-> bool:
+    rc = False
+    try:
+      rc = (None != section[key])
+    except Exception:
+      rc = False
+    return rc
+
 
   def load(self):
     if not os.path.isfile(self.fname):
@@ -152,14 +163,24 @@ class ConfigReader:
     
     section = self.parser[self.rootTag]
     self.logger.verboseLog("ini cfg")
+
+    if not self.keyExist("dddd", section):
+      print("no ddd")
+
     for s in section:
       self.logger.verboseLog("%s - %s" % (str(s), section[s]))
-    self.fmt = Formats.parce(section[self.fmtTag])
-    self.tmp = section[self.tmpTag]
-    self.noarch = self.parseBool(section[self.noarchTag])
 
+    if self.keyExist(self.fmtTag, section):
+      self.fmt = Formats.parce(section[self.fmtTag])
 
+    if self.keyExist(self.tmpTag, section):
+      self.tmp = section[self.tmpTag]
 
+    if self.keyExist(self.noarchTag, section):
+      self.noarch = self.parseBool(section[self.noarchTag])
+
+    if self.keyExist(self.noprescanTag, section): 
+      self.noprescan = self.parseBool(section[self.noprescanTag])
 
 #########################################################################################################
 class FolderProcessor:
