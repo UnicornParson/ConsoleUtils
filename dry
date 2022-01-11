@@ -195,7 +195,7 @@ class FolderProcessor:
     self.subseedIndex = 0
     self.useprescan = not args.noprescan
     self.currentArchive = ""
-    self.archiveExclusions = [".epub", "epub", "chm", ".chm"]
+    self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk"]
 
     self.defaultConfigFname = bindir + "/config.ini"
     self.defaultConfig = ConfigReader(self.logger, self.defaultConfigFname)
@@ -215,6 +215,9 @@ class FolderProcessor:
       self.logger.verboseLog("set noarch %s" % self.defaultConfig.noarch)
       self.noarch = self.defaultConfig.noarch
 
+    if self.defaultConfig.noprescan != None:
+      self.logger.verboseLog("set noprescan %s" % self.defaultConfig.noprescan)
+      self.useprescan = not args.noprescan
 
     if self.fmt == Formats.invalid:
       raise ParamsError("invalid format " + args.format)
