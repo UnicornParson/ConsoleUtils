@@ -16,6 +16,10 @@ def mstime() -> int:
 def fssync():
   os.system("sync")
 
+
+def mpSeed() -> str:
+  return "p%d_%d" % (os.getpid(), mstime())
+
 class HasherFactory:
   @staticmethod
   def createHasher():

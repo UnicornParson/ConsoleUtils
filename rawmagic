@@ -1,0 +1,24 @@
+#!/usr/bin/env python3.8
+import sys
+
+import dry_internal
+if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
+    raise SystemExit("This program requires Python 3.5 or later.")
+
+import argparse
+import numpy as np
+import cv2
+import os
+
+
+def main() -> int :
+  appDescription = '''
+Detect format of raw image
+  '''
+  parser = argparse.ArgumentParser(add_help=True, description=appDescription)
+  parser.add_argument("image", help="image with path")
+
+  args = parser.parse_args()
+
+if __name__ == '__main__':
+    sys.exit(main())

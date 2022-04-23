@@ -1,0 +1,36 @@
+import csv
+import multiprocessing
+import os
+import tempfile
+
+## based on https://stackoverflow.com/questions/30947682/splitting-a-csv-file-into-equal-parts?rq=1
+
+def split(infilename, num_chunks=multiprocessing.cpu_count()):
+    READ_BUFFER =  40 * (2**20) ## 40mb
+    in_file_size = os.path.getsize(infilename)
+    print 'in_file_size:', in_file_size
+    chunk_size = in_file_size // num_chunks
+    print 'target chunk_size:', chunk_size
+    files = []
+    with open(infilename, 'rb', READ_BUFFER) as infile:
+        for _ in xrange(num_chunks):
+            temp_file = tempfile.TemporaryFile()
+            while temp_file.tell() < chunk_size:
+                try:
+                    temp_file.write(infile.next())
+                except StopIteration:  # end of infile
+                    break
+            temp_file.seek(0)  # rewind
+            files.append(temp_file)
+    return files
+
+files = split("sample_simple.csv", num_chunks=4)
+print 'number of files created: {}'.format(len(files))
+
+for i, ifile in enumerate(files, start=1):
+    print 'size of temp file {}: {}'.format(i, os.path.getsize(ifile.name))
+    print 'contents of file {}:'.format(i)
+    reader = csv.reader(ifile)
+    for row in reader:
+        print row
+    print ''
