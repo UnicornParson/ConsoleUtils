@@ -1,3 +1,8 @@
 *.autosave
 config.ini
 *.backup
+/build-dryMP-Desktop_Qt_6_2_4_MinGW_64_bit-Profile
+/build-dryMP-Desktop_Qt_6_2_4_MinGW_64_bit-Release
+/dryMP/.qtc_clangd
+/dryMP/Makefile.Debug
+Makefile.Release
