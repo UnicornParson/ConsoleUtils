@@ -6,3 +6,5 @@ config.ini
 /dryMP/.qtc_clangd
 /dryMP/Makefile.Debug
 Makefile.Release
+__pycache__
+/3rdParty/patool/patoolib/__pycache__

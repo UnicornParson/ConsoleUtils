@@ -1,15 +1,20 @@
-#!/usr/bin/env python3.8
-import sys
+#!/usr/bin/env python3
 
-import dry_internal
+import pkg_resources
+from pkg_resources import DistributionNotFound, VersionConflict
+
+dependencies = [
+  'reprint',
+  'BeautifulSoup4',
+]
+pkg_resources.require(dependencies)
+
 if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
     raise SystemExit("This program requires Python 3.5 or later.")
 
+import sys
 import argparse
-
 import os
-
-
 import shutil
 import json
 import datetime
@@ -39,7 +44,7 @@ class LoggerMode(enum.Enum):
   progressAndErrors = 2
   progressVerbose = 3
 
-
+#########################################################################################################
 
 class Logger:
   def __init__(self, mode: LoggerMode, seed: str):
@@ -164,9 +169,6 @@ class ConfigReader:
     section = self.parser[self.rootTag]
     self.logger.verboseLog("ini cfg")
 
-    if not self.keyExist("dddd", section):
-      print("no ddd")
-
     for s in section:
       self.logger.verboseLog("%s - %s" % (str(s), section[s]))
 
@@ -195,7 +197,7 @@ class FolderProcessor:
     self.subseedIndex = 0
     self.useprescan = not args.noprescan
     self.currentArchive = ""
-    self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk"]
+    self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk", ".mp4"]
 
     self.defaultConfigFname = bindir + "/config.ini"
     self.defaultConfig = ConfigReader(self.logger, self.defaultConfigFname)
