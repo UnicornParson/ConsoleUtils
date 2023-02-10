@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import pkg_resources
 from pkg_resources import DistributionNotFound, VersionConflict
 
@@ -9,10 +8,10 @@ dependencies = [
 ]
 pkg_resources.require(dependencies)
 
+import sys
 if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
     raise SystemExit("This program requires Python 3.5 or later.")
 
-import sys
 import argparse
 import os
 import shutil
@@ -173,7 +172,7 @@ class ConfigReader:
       self.logger.verboseLog("%s - %s" % (str(s), section[s]))
 
     if self.keyExist(self.fmtTag, section):
-      self.fmt = Formats.parce(section[self.fmtTag])
+      self.fmt = Formats.parse(section[self.fmtTag])
 
     if self.keyExist(self.tmpTag, section):
       self.tmp = section[self.tmpTag]
@@ -190,7 +189,7 @@ class FolderProcessor:
     self.logger = logger
     self.dbEngine = DBEngine()
     self.dbPath = ":memory:"
-    self.fmt = Formats.parce(args.format)
+    self.fmt = Formats.parse(args.format)
     self.comparatorBlockSize = 10240 #10k
     self.seed = seed
     self.tmpFolder = ""
