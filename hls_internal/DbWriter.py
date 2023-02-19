@@ -33,13 +33,16 @@ class DBEngine:
 		self.cursor.execute("""
 			CREATE TABLE "playlists" (
 				"id"	INTEGER NOT NULL UNIQUE,
+				"time"  timestamp NOT NULL,
 				"url"	TEXT NOT NULL,
 				"variant"	INTEGER NOT NULL DEFAULT 0,
 				"bandwidth"	INTEGER NOT NULL DEFAULT 0,
 				"invalid"	INTEGER NOT NULL DEFAULT 0,
 				"invalidReason"	TEXT,
+				"loadDuration" REAL NOT NULL DEFAULT 0.0,
 				"seq"	INTEGER NOT NULL,
 				"duration"	REAL NOT NULL DEFAULT 0.0,
+				"lastplaylist"	TEXT, 
 				PRIMARY KEY("id" AUTOINCREMENT)
 		);
 		""")
@@ -80,10 +83,12 @@ class StatSqliteWriter(StatWriter):
 
 	async def write(self, stat: PlaylistStat) -> bool:
 		if not self.engine:
+			print("no engine")
 			return False
 		try:
 			data = stat.toTuple()
-			q = "INSERT INTO 'playlists'('url', 'variant', 'bandwidth', 'invalid', 'invalidReason', 'seq', 'duration') VALUES (?,?,?,?,?,?,?);"
+			q = """INSERT INTO 'playlists'('time', 'url', 'variant', 'bandwidth', 'invalid', 'invalidReason', 'seq', 'duration', 'lastplaylist', 'loadDuration')
+			 		VALUES (?,?,?,?,?,?,?,?,?,?);"""
 			await self.engine.exec(q, data)
 		except Exception as e:
 			print("cannot exec query ", str(e))

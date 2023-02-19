@@ -1,6 +1,7 @@
 import m3u8
 import asyncio
 import traceback
+import time
 from urllib.parse import urlparse
 from .PlaylistStat import *
 
@@ -15,36 +16,54 @@ def urlTail(u)->str:
 
 class StatCollector:
 	def __init__(self) -> None:
-		self.statWriter = None
+		self.statWriters = []
 
-	def setup(self, statWriter) -> bool:
-		if not statWriter:
+	def setup(self, statWriters) -> bool:
+		if not statWriters:
 			raise ValueError("invalid writer")
-		self.statWriter = statWriter
+		self.statWriters = statWriters
 		return True
 
 	async def processUrl(self, url: str) -> bool:
-		if not self.statWriter:
+		if not self.statWriters:
 			raise ValueError("run before setup")
 		ret  = True
 		stats = await self.getPlaylistStat(url)
 		for s in stats:
 			ret &= not s.invalid
-			writeRc = await self.statWriter.write(s)
+			writeRc = True
+			for writer in self.statWriters:
+				if writer:
+					writeRc &= await writer.write(s)
 			if not writeRc:
 				print("cannot write to writer")
 		return ret
 
+	async def runLoop(self, url: str) -> bool:
+		rc = True
+		try:
+			while True:
+				rc &= await self.processUrl(url)
+				await asyncio.sleep(1)
+		except KeyboardInterrupt:
+			print("Interrupted..")
+		except Exception as e:
+			print("error: ", str(e))
+			rc = False
+		return rc
 
 	async def getPlaylistStat(self, url: str):
-		if not self.statWriter:
+		if not self.statWriters:
 			raise ValueError("run before setup")
-		print("getPlaylistStat ", url)
+		print("stat for ", url)
 		stat = PlaylistStat()
 		stat.url = url
 		stat.bandwidth = 0
+		stat.loadDuaration = 0.0
 		try:
+			before = time.time()
 			playlist = m3u8.load(url)
+			stat.loadDuaration = (time.time()-before)
 		except Exception as e:
 			stat.invalid = True
 			stat.invalidReason = str(e)
@@ -69,6 +88,7 @@ class StatCollector:
 					stat.duration += item.duration
 			rc.append(stat)
 		else:
+			stat.lastPlaylist = playlist.dumps()
 			stat.duration = playlist.target_duration
 			stat.seq = playlist.media_sequence
 			rc.append(stat)

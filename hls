@@ -34,32 +34,46 @@ async def downloadCmd(args) -> bool:
 	rc = await d.downloadPlaylist(args.url)
 	return rc
 
-async def scanCmd(args) -> bool:
+async def statCmd(args) -> bool:
+
 	s = StatCollector.StatCollector()
-	#writer = StatCollector.StatPrinter()
+	printer = None
+	if args.verbose:
+		printer = StatCollector.StatVerbosePrinter()
+	else:
+		printer = StatCollector.StatPrinter()
 	writer = DbWriter.StatSqliteWriter()
+
 	rc = await writer.setup()
 	if not rc:
 		print("cannot setup writer")
 		return rc
-	rc = s.setup(writer)
+	rc = s.setup([writer, printer])
 	if not rc:
 		await writer.close()
 		print("cannot setup collector")
 		return rc
-	rc = await s.processUrl(args.url)
+
+	if args.single:
+		rc = await s.processUrl(args.url)
+	else:
+		rc = await s.runLoop(args.url)
+
 	await writer.close()
 	return rc
 
+async def scanCmd(args) -> bool:
+	return False
+
 async def main() -> int:
 	parser = argparse.ArgumentParser(add_help=True, description="HLS tool")
-
+	parser.add_argument("-o", "--out",action="store", default=".", help="download folder") 
+	parser.add_argument("-1", "--single", action="store_true", help="single run. test and exit")
+	parser.add_argument("-v", "--verbose", action="store_true", help="full console output")
 	parser.add_argument("cmd", help="what do we do")
 	parser.add_argument("url", help="stream url")
-	parser.add_argument("-o", "--out",action="store", default=".", help="download folder") 
-	#parser.add_argument("-l", "--list", action="store_true", default=".", help="output target (default .)")  
-	args = parser.parse_args()
 
+	args = parser.parse_args()
 	cmd = Actions.parse(args.cmd)
 	if cmd == Actions.invalid:
 		print("invalid cmd")
@@ -69,13 +83,18 @@ async def main() -> int:
 	rc = False
 	if cmd == Actions.download:
 		rc = await downloadCmd(args)
+	elif cmd == Actions.stat:
+		rc = await statCmd(args)
 	elif cmd == Actions.scan:
 		rc = await scanCmd(args)
-
 	if rc:
 		return 0
 	return -1
 
 if __name__ == '__main__':
-	result = asyncio.run(main())
+	result = 0
+	try:
+		result = asyncio.run(main())
+	except KeyboardInterrupt:
+		print(" KeyboardInterrupt...")
 	exit(result)
