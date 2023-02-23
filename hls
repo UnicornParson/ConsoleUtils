@@ -8,6 +8,7 @@ import sys
 import argparse
 import m3u8
 import asyncio
+import pprint
 
 from urllib.parse import urlparse
 
@@ -35,7 +36,6 @@ async def downloadCmd(args) -> bool:
 	return rc
 
 async def statCmd(args) -> bool:
-
 	s = StatCollector.StatCollector()
 	printer = None
 	if args.verbose:
@@ -63,7 +63,15 @@ async def statCmd(args) -> bool:
 	return rc
 
 async def scanCmd(args) -> bool:
-	return False
+	parser = ListParser.Parser()
+
+	content = await parser.load(args.url)
+
+	if not content.ok:
+		print("cannot load %s reason %s" % (args.url, content.reason))
+
+	pprint.pprint(content.items)
+	return content.ok
 
 async def main() -> int:
 	parser = argparse.ArgumentParser(add_help=True, description="HLS tool")
