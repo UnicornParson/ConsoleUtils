@@ -73,3 +73,8 @@ Console util to make a screenshot
 
 ## HLS
 HLS utils
+
+## FROZEN
+frozen frames detector
+* hignlights changed pixels in video
+* prints sibling frames difference coefficient
