@@ -8,3 +8,4 @@ config.ini
 Makefile.Release
 __pycache__
 /3rdParty/patool/patoolib/__pycache__
+.idea

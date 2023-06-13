@@ -28,8 +28,8 @@ class Formats(enum.Enum):
   invalid = 4
 
   @staticmethod
-  def parce(value) -> enum.Enum:
-      if value == None:
+  def parse(value) -> enum.Enum:
+      if not value:
         return Formats.invalid
       for m, mm in Formats.__members__.items():
         if m == value.lower():
