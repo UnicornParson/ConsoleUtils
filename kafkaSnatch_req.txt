@@ -1,0 +1,3 @@
+lz4
+crc32c
+confluent-kafka

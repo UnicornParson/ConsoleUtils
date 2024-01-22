@@ -14,3 +14,8 @@ pytest>=7.2.1
 xmltodict>=0.13.0
 SQLAlchemy>=2.0.7
 reprint
+videohash
+ImageHash
+lz4
+crc32c
+confluent-kafka

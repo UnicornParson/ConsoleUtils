@@ -78,3 +78,11 @@ HLS utils
 frozen frames detector
 * hignlights changed pixels in video
 * prints sibling frames difference coefficient
+
+## kafkaSnatch
+dumps kafka topic to txt file
+requirements can be found in **kafkaSnatch_req.txt**
+```
+usage: kafkaSnatch broker_addr topic_name
+example: kafkaSnatch 127.0.0.1:12345 my_topic
+```
