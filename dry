@@ -137,8 +137,14 @@ class ConfigReader:
 		self.noarchTag = "noarch"
 		self.noprescanTag = "noprescan"
 		self.storageTag = "storage"
+		self.pghostTag = "pghost"
+		self.pghostTag = "pghost"
+		self.pguserTag = "pguser"
+		self.pgpassTag = "pgpass"
+		self.pgdbTag = "pgdb"
 		self.storageType = DBEngine.DBEngine.StorageSqlite
 		self.parser = configparser.ConfigParser()
+		self.pgPath = DBEngine.PgPath()
 		self.load()
 
 	def parseBool(self, s: str):
@@ -188,6 +194,24 @@ class ConfigReader:
 
 		if self.keyExist(self.storageTag, section):
 			self.storageType = section[self.storageTag]
+
+
+		# PG section
+		if self.keyExist(self.pghostTag, section): 
+			self.pgPath.host = section[self.pghostTag]
+
+		if self.keyExist(self.pguserTag, section): 
+			self.pgPath.user = section[self.pguserTag]
+
+		if self.keyExist(self.pgpassTag, section):
+			self.pgPath.password = section[self.pgpassTag]
+
+		if self.keyExist(self.pgdbTag, section):
+			self.pgPath.dbname = section[self.pgdbTag]
+
+		if self.storageType == DBEngine.PGEngine and not self.pgPath.filled():
+			raise ValueError("storage is pg but config is incomplete")
+		
 		print("self.storageType ", self.storageType)
 
 #########################################################################################################
@@ -204,13 +228,14 @@ class FolderProcessor:
 		self.subseedIndex = 0
 		self.useprescan = not args.noprescan
 		self.currentArchive = ""
-		self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk", ".mp4"]
+		self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk", ".mp4", ".deb", ".rpm", ".img"]
 
 		self.defaultConfigFname = bindir + "/config.ini"
 		self.defaultConfig = ConfigReader(self.logger, self.defaultConfigFname)
 		self.storageType = self.defaultConfig.storageType
 		self.dbEngine = DBEngine.makeEngine(self.storageType)
-		self.dbPath = ":memory:"		
+		self.dbPath = ":memory:"
+		self.pgPath = self.defaultConfig.pgPath
 		self.noarch = False
 		self.tmpBase = "."
 
@@ -244,7 +269,7 @@ class FolderProcessor:
 		if not self.target:
 			self.target = "."
 		if self.fmt == Formats.sqlite:
-			self.storageType = DBEngine.StorageSqlite
+			self.storageType = DBEngine.DBEngine.StorageSqlite
 			self.dbEngine = DBEngine.makeEngine(self.storageType)
 		if os.path.isdir(self.target):
 			self.target += "/duplicatesReport.%s.%s" % (seed, Formats.ext(self.fmt))
@@ -510,7 +535,13 @@ class FolderProcessor:
 		with output(output_type="list", initial_len=self.logger.progressPanelLinesCount, interval = 0) as self.logger.progressOutputLine:
 			if not self.logger.progressOutputLine:
 				self.logger.logFatal("exec: outLine is not setted ")
-			self.dbEngine.open(self.dbPath)
+			if self.storageType == DBEngine.DBEngine.StorageSqlite:
+				self.dbEngine.open(self.dbPath)
+			elif self.storageType == DBEngine.DBEngine.StoragePG:
+				if not self.pgPath.filled():
+					raise ValueError("invalid pgconfig")
+				self.dbEngine.open(self.pgPath)
+
 			self.logger.progressOutputLine[0] = "----[   indexing stage  ]----"
 			self.readDir(self.inPath)
 			self.logger.verboseLog("indexing stage: done")
@@ -553,6 +584,8 @@ def main() -> int :
 
 	args = parser.parse_args()
 	seed = str(mstime())
+
+	DBEngine.PGEngine.makeNodeKeys(1, mstime())
 	lm = LoggerMode.verboseMode
 	if args.verbose and args.progress:
 		loggerMode = LoggerMode.progressVerbose
