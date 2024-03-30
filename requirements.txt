@@ -19,4 +19,3 @@ ImageHash
 lz4
 crc32c
 confluent-kafka
-psycopg2-binary

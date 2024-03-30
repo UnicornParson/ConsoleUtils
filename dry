@@ -37,7 +37,7 @@ from patoolib.configuration import App
 
 from common import *
 from dry_internal import *
-from dry_internal import DBEngine
+from dry_internal import DBEngine, hasher
 class LoggerMode(enum.Enum):
 	verboseMode = 0
 	quietMode = 1
@@ -369,9 +369,15 @@ class FolderProcessor:
 		self.cleanTmp()
 		self.currentArchive = ""
 		return True
-
+	def updateProgress(self, msg: str):
+		self.logger.progressOutputLine[3] = msg
 	@timing
 	def calc(self, fname: str) -> str:
+		self.updateProgress("")
+		hexdigest = hasher.hashFile(fname, self.updateProgress)
+		self.updateProgress("")
+		return hexdigest
+		"""
 		hasher = HasherFactory.createHasher()
 		block_size = 128 * hasher.block_size
 		a_file = open(fname, 'rb')
@@ -389,7 +395,7 @@ class FolderProcessor:
 			processedSize += block_size
 		a_file.close()
 		self.logger.progressOutputLine[3] = ""
-		return hasher.hexdigest()
+		return hasher.hexdigest()"""
 
 	def compareFiles(self, path1: str, path2: str) -> bool:
 		self.logger.log("compare " + path1 + " -> " + path2)
@@ -565,6 +571,7 @@ class FolderProcessor:
 			else:
 				self.logger.log("database saved to " + self.dbPath)
 			self.logger.progressOutputLine[0] = "----[ done ]----"
+			self.dbEngine.cleanup()
 			self.dbEngine.close()
 
 

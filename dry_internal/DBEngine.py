@@ -21,6 +21,8 @@ class DBEngine:
 		pass
 	def close(self):
 		pass
+	def cleanup(self):
+		pass	
 
 class PgPath:
 	def __init__(self) -> None:
@@ -68,7 +70,7 @@ class PGEngine(DBEngine):
 			self.cursor.execute(q, args)
 		except Exception as e:
 			print(e, " in ", q)
-		
+	
 
 	def checkDb(self):
 		if not self.cursor or not self.connection:
@@ -94,30 +96,32 @@ class PGEngine(DBEngine):
 					CONSTRAINT hashes_pkey PRIMARY KEY (id)
 				)
 			""")
-			self.cursor.execute("ALTER TABLE IF EXISTS public.hashes OWNER TO %s;", (self.path.user,))
+			self.cursor.execute("ALTER TABLE IF EXISTS public.hashes OWNER TO %s;" % self.path.user)
 			self.cursor.execute("""
 				CREATE TABLE IF NOT EXISTS public.results
 				(
 					id bigserial NOT NULL,
 					session_id bigint NOT NULL,
-					"groupId" character varying(256) NOT NULL,
+					groupId character varying(256) NOT NULL,
 					path character varying(512) NOT NULL,
 					size bigint NOT NULL,
 					PRIMARY KEY (id)
 				);
 			""")
-			self.cursor.execute("ALTER TABLE IF EXISTS public.results OWNER TO %s;", (self.path.user,))
-			self.cursor.execute("CREATE VIEW IF NOT EXISTS public.sessions AS SELECT DISTINCT session_id as sid FROM public.hashes order by session_id;")
-			self.cursor.execute("ALTER TABLE public.sessions OWNER TO %s;", (self.path.user,))
+			self.cursor.execute("ALTER TABLE IF EXISTS public.results OWNER TO %s;" % self.path.user)
+			self.cursor.execute("CREATE OR REPLACE VIEW public.sessions AS SELECT DISTINCT session_id as sid FROM public.hashes order by session_id;")
+			self.cursor.execute("ALTER TABLE public.sessions OWNER TO %s;" % self.path.user)
 
 		except Exception as e:
 			print(e, " in ",self.cursor.query)
 
 		self.connection.commit()
+		print("create db OK")
+
 	def notUniqueHashes(self):
 		self.checkDb()
 		rc = []
-		self.execOne("SELECT DISTINCT hash FROM public.hashes WHERE session_id='%s' GROUP BY hash HAVING COUNT(*) > 1", (PGEngine.SessionId,))
+		self.execOne("SELECT DISTINCT hash FROM public.hashes WHERE session_id=%s GROUP BY hash HAVING COUNT(*) > 1", (PGEngine.SessionId,))
 		try:
 			qrc = self.cursor.fetchall()
 		except psycopg2.ProgrammingError:
@@ -129,7 +133,7 @@ class PGEngine(DBEngine):
 	def filesByHash(self, hash: str):
 		self.checkDb()
 		rc = []
-		self.execOne("SELECT path, size FROM public.hashes  WHERE hash='%s' and session_id='%s'", (hash,PGEngine.SessionId))
+		self.execOne("SELECT path, size FROM public.hashes  WHERE hash=%s and session_id=%s", (hash,PGEngine.SessionId))
 		try:
 			qrc = self.cursor.fetchall()
 		except psycopg2.ProgrammingError:
