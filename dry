@@ -15,11 +15,13 @@ if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
 
 import argparse
 import os
+import gc
 import shutil
 import json
 import datetime
 from reprint import output
-
+from multiprocessing import Process, Queue
+import resource
 from pathlib import *
 from collections import OrderedDict
 
@@ -147,6 +149,7 @@ class ConfigReader:
 		self.pgPath = DBEngine.PgPath()
 		self.load()
 
+
 	def parseBool(self, s: str):
 		if s.lower() == "yes" or s.lower() == "true":
 			return True
@@ -239,7 +242,9 @@ class FolderProcessor:
 		self.pgPath = self.defaultConfig.pgPath
 		self.noarch = False
 		self.tmpBase = "."
-
+		self.mpPool = []
+		self.mpPoolMaxSize = 16
+		self.mpqueue = Queue()
 		if not seed:
 			self.seed = mstime()
 
@@ -297,6 +302,27 @@ class FolderProcessor:
 		s = str(self.subseedIndex)
 		self.subseedIndex += 1
 		return s
+
+	@timing
+	def joinPool(self):
+		while self.mpPool:
+			print("wait pool.. sz: %d" % len(self.mpPool))
+			self.mpWaitOne()
+
+
+	def mpWaitOne(self):
+		if self.mpPool:
+			p = self.mpPool.pop(0)
+			p.join()
+			printableFileName, fileSize, err_msg = self.mpqueue.get()
+			p.terminate()
+			del p
+			self.logger.stats.filesCount += 1
+			self.logger.stats.filesSize += fileSize
+			self.logger.printIndexProgress(printableFileName)
+			print("joined p_sz:%d c:%d sz:%d p:%s" % (len(self.mpPool), self.logger.stats.filesCount, self.logger.stats.filesSize, printableFileName) )
+			gc.collect()
+
 
 	def makeTmp(self, where: str) -> bool:
 		if self.tmpFolder:
@@ -411,15 +437,50 @@ class FolderProcessor:
 			chunk1 = f1.read(self.comparatorBlockSize)
 			chunk2 = f2.read(self.comparatorBlockSize)
 		return True
+	
+	@staticmethod
+	def asyncReadBody(path: str, pgSettngs, q, printableFileName):
+		dbEngine = DBEngine.PGEngine()
+		dbEngine.open(pgSettngs)
+		fileSize = 0
+		e_msg = ""
+		try:
+			hashStr = hasher.hashFile(path, None)
+			fileSize = os.path.getsize(path)
+			dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
+		except KeyboardInterrupt:
+			pass
+		except Exception as e:
+			e_msg = "cannot read file %s  exception: %s" % (path, str(e))
+			q.put( (printableFileName, 0, e_msg) )
+			print("ERROR! ", (printableFileName, 0, e_msg))
+			return
+		q.put( (printableFileName, fileSize, e_msg) )
+		
+
+		
+
 
 	def asyncRead(self, path: str, fnamePrefix = ""):
-		pass
+		printableFileName = path
+		if fnamePrefix and fnamePrefix != ".":
+			printableFileName = "%s:/%s" % (fnamePrefix.replace("//",'/'), path.replace(self.tmpFolder,'').replace("//",'/'))
+		if not self.pgPath.filled():
+			raise ValueError("invalid pgconfig")
+		while len(self.mpPool) >= self.mpPoolMaxSize:
+			##print("pool is closed! wait")
+			self.mpWaitOne()
+		p = Process(target=FolderProcessor.asyncReadBody, args=(path, self.pgPath, self.mpqueue, printableFileName))
+		p.start()
+		self.mpPool.append(p)
 
-	@staticmethod
-	def asyncReadBody(path: str, db_session):
-		pass
+
 
 	def readFile(self, path: str, fnamePrefix = ""):
+		if self.mp:
+			self.asyncRead(path, fnamePrefix)
+			return
+
 		printableFileName = path
 		if fnamePrefix and fnamePrefix != ".":
 			printableFileName = "%s:/%s" % (fnamePrefix.replace("//",'/'), path.replace(self.tmpFolder,'').replace("//",'/'))
@@ -547,6 +608,7 @@ class FolderProcessor:
 
 			self.logger.progressOutputLine[0] = "----[   indexing stage  ]----"
 			self.readDir(self.inPath)
+			self.joinPool()
 			self.logger.verboseLog("indexing stage: done")
 			self.logger.progressOutputLine[0] = "----[ comparation stage ]----"
 			fssync()
@@ -590,6 +652,8 @@ def main() -> int :
 	args = parser.parse_args()
 	seed = str(mstime())
 
+	soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+	resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
 	DBEngine.PGEngine.makeNodeKeys(1, mstime())
 	lm = LoggerMode.verboseMode
 	if args.verbose and args.progress:

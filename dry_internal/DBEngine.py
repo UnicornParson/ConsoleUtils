@@ -36,6 +36,7 @@ class PgPath:
 class PGEngine(DBEngine):
 	ProduccerId = None
 	SessionId = None
+	AlreadyCreated = False
 
 	@staticmethod
 	def makeNodeKeys(produccer: int, session: int):
@@ -81,6 +82,8 @@ class PGEngine(DBEngine):
 			raise ValueError("Invalig SessionId")
 
 	def makeDb(self):
+		if PGEngine.AlreadyCreated:
+			return
 		try:
 			print("use db user ",self.path.user)
 			self.cursor.execute("""
@@ -116,6 +119,7 @@ class PGEngine(DBEngine):
 			print(e, " in ",self.cursor.query)
 
 		self.connection.commit()
+		PGEngine.AlreadyCreated = True
 		print("create db OK")
 
 	def notUniqueHashes(self):
