@@ -13,7 +13,6 @@ import datetime
 def hashFile(fname: str, onProgressStr = None):
 	hasher = hashlib.sha512()
 	block_size = 128 * hasher.block_size
-	print("try ", fname)
 	with open(fname, 'rb') as a_file:
 		chunk = a_file.read(block_size)
 		processedSize = block_size
@@ -29,6 +28,7 @@ def hashFile(fname: str, onProgressStr = None):
 			processedSize += block_size
 
 	return hasher.hexdigest()
+
 class VideoHasher:
 	def __init__(self, fname:str):
 		self.fname = fname

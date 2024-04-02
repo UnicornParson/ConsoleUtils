@@ -173,7 +173,7 @@ class ConfigReader:
 			self.logger.verboseLog("no %s section in config file" % self.rootTag)
 			return
 
-		
+
 		section = self.parser[self.rootTag]
 		self.logger.verboseLog("ini cfg")
 
@@ -189,7 +189,7 @@ class ConfigReader:
 		if self.keyExist(self.noarchTag, section):
 			self.noarch = self.parseBool(section[self.noarchTag])
 
-		if self.keyExist(self.noprescanTag, section): 
+		if self.keyExist(self.noprescanTag, section):
 			self.noprescan = self.parseBool(section[self.noprescanTag])
 
 		if self.keyExist(self.storageTag, section):
@@ -197,10 +197,10 @@ class ConfigReader:
 
 
 		# PG section
-		if self.keyExist(self.pghostTag, section): 
+		if self.keyExist(self.pghostTag, section):
 			self.pgPath.host = section[self.pghostTag]
 
-		if self.keyExist(self.pguserTag, section): 
+		if self.keyExist(self.pguserTag, section):
 			self.pgPath.user = section[self.pguserTag]
 
 		if self.keyExist(self.pgpassTag, section):
@@ -211,7 +211,7 @@ class ConfigReader:
 
 		if self.storageType == DBEngine.PGEngine and not self.pgPath.filled():
 			raise ValueError("storage is pg but config is incomplete")
-		
+
 		print("self.storageType ", self.storageType)
 
 #########################################################################################################
@@ -226,7 +226,8 @@ class FolderProcessor:
 		self.seed = seed
 		self.tmpFolder = ""
 		self.subseedIndex = 0
-		self.useprescan = not args.noprescan
+		self.useprescan = not args.noprescan and not self.mp
+		self.mp = args.mp
 		self.currentArchive = ""
 		self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk", ".mp4", ".deb", ".rpm", ".img"]
 
@@ -241,9 +242,11 @@ class FolderProcessor:
 
 		if not seed:
 			self.seed = mstime()
+
 		self.noarch = args.noarchive
 		if self.defaultConfig.fmt != Formats.invalid:
 			self.fmt = self.defaultConfig.fmt
+
 		if self.defaultConfig.tmp:
 			self.logger.verboseLog("set tmp %s" % self.defaultConfig.tmp)
 			self.tmpBase = self.defaultConfig.tmp
@@ -255,6 +258,10 @@ class FolderProcessor:
 		if self.defaultConfig.noprescan != None:
 			self.logger.verboseLog("set noprescan %s" % self.defaultConfig.noprescan)
 			self.useprescan = not args.noprescan
+
+		if self.mp:
+			self.noarch = True
+			self.useprescan = False
 
 		if self.fmt == Formats.invalid:
 			raise ParamsError("invalid format " + args.format)
@@ -279,7 +286,7 @@ class FolderProcessor:
 
 		if args.tmp:
 			self.tmpBase = args.tmp
-		
+
 		self.archlimit = args.archlimit * (2**20)
 		astr = "ignore"
 		if not self.noarch:
@@ -352,7 +359,7 @@ class FolderProcessor:
 		if not self.tmpFolder or not tmprc:
 			self.logger.logError("cannot make a tmp folder")
 			return False
-		
+
 		try:
 			self.currentArchive = path
 			self.logger.verboseLog("extract %s to %s" % (path, self.tmpFolder))
@@ -369,33 +376,16 @@ class FolderProcessor:
 		self.cleanTmp()
 		self.currentArchive = ""
 		return True
+	
 	def updateProgress(self, msg: str):
 		self.logger.progressOutputLine[3] = msg
+	
 	@timing
 	def calc(self, fname: str) -> str:
 		self.updateProgress("")
 		hexdigest = hasher.hashFile(fname, self.updateProgress)
 		self.updateProgress("")
 		return hexdigest
-		"""
-		hasher = HasherFactory.createHasher()
-		block_size = 128 * hasher.block_size
-		a_file = open(fname, 'rb')
-		chunk = a_file.read(block_size)
-		processedSize = block_size
-		fSize = os.path.getsize(fname)
-		self.logger.progressOutputLine[3] = ""
-		if fSize <= 0:
-			return hasher.hexdigest()
-		while chunk:
-			prc = (processedSize / fSize) * 100.0
-			self.logger.progressOutputLine[3] = "process file %s %0.3f%%" % (fname, prc)
-			hasher.update(chunk)
-			chunk = a_file.read(block_size)
-			processedSize += block_size
-		a_file.close()
-		self.logger.progressOutputLine[3] = ""
-		return hasher.hexdigest()"""
 
 	def compareFiles(self, path1: str, path2: str) -> bool:
 		self.logger.log("compare " + path1 + " -> " + path2)
@@ -422,6 +412,13 @@ class FolderProcessor:
 			chunk2 = f2.read(self.comparatorBlockSize)
 		return True
 
+	def asyncRead(self, path: str, fnamePrefix = ""):
+		pass
+
+	@staticmethod
+	def asyncReadBody(path: str, db_session):
+		pass
+
 	def readFile(self, path: str, fnamePrefix = ""):
 		printableFileName = path
 		if fnamePrefix and fnamePrefix != ".":
@@ -445,7 +442,7 @@ class FolderProcessor:
 		self.logger.printIndexProgress(printableFileName)
 		self.logger.verboseLog("hash: %s size: %d" % (hashStr, fileSize))
 		self.dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
-	
+
 	def needProcessFileAsArchive(self, path) -> bool:
 		self.logger.verboseLog("check file " + path)
 		if self.noarch:
@@ -461,7 +458,7 @@ class FolderProcessor:
 			self.logger.verboseLog("already process an archive in %s. no recursive execution" % self.tmpFolder)
 			self.logger.verboseLog("current archive is %s" % self.currentArchive)
 			return False
-		self.logger.verboseLog("process %s as archove" % path)  
+		self.logger.verboseLog("process %s as archove" % path)
 		return True
 
 	@timing
@@ -469,7 +466,7 @@ class FolderProcessor:
 		if not fnamePrefix:
 			fnamePrefix = path
 		try:
-			if os.path.islink(path): 
+			if os.path.islink(path):
 				self.logger.verboseLog("ignore link " + path)
 			elif self.needProcessFileAsArchive(path):
 				self.readFile(path, fnamePrefix)
@@ -505,7 +502,7 @@ class FolderProcessor:
 			groups[hash]["size"] = files[0][1]
 			for filename in groups[hash]["path"]:
 				self.dbEngine.writeGroupRecord(hash, filename, groups[hash]["size"])
-					
+
 		return groups
 
 	@timing
@@ -534,7 +531,7 @@ class FolderProcessor:
 		if not self.inPath:
 			self.logger.logFatal("no input path")
 		self.scandir(self.inPath)
-		self.logger.verboseLog("prescan stage: done. found %d files (%s)" % (self.logger.stats.totalCount, common.StrUtils.convert_bytes(self.logger.stats.totalSize))) 
+		self.logger.verboseLog("prescan stage: done. found %d files (%s)" % (self.logger.stats.totalCount, common.StrUtils.convert_bytes(self.logger.stats.totalSize)))
 
 	@timing
 	def exec(self):
@@ -587,7 +584,8 @@ def main() -> int :
 	parser.add_argument("--noarchive", action="store_true", help="don't open archives, process as usual files")
 	parser.add_argument("--progress", action="store_true", help="print progress line")
 	parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
-	parser.add_argument("path", help="folder to scan")
+	parser.add_argument("--mp", action="store_true", help="print progress line")
+	parser.add_argument("path", help="parallel scan")
 
 	args = parser.parse_args()
 	seed = str(mstime())
