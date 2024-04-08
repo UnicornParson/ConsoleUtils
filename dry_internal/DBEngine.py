@@ -1,5 +1,12 @@
 import sqlite3
 import psycopg2
+import os
+
+class DbLogLevel:
+	Debug = "DEBUG"
+	Warning = "WARN"
+	Error = "ERR"
+	Fatal = "FATAL"
 
 class DBEngine:
 	StorageSqlite = "sqlite"
@@ -112,6 +119,20 @@ class PGEngine(DBEngine):
 				);
 			""")
 			self.cursor.execute("ALTER TABLE IF EXISTS public.results OWNER TO %s;" % self.path.user)
+
+			self.cursor.execute("""
+				CREATE TABLE IF NOT EXISTS public.log
+				(
+					id bigserial NOT NULL,
+					td bigint NOT NULL,
+					sid bigint NOT NULL,
+					pid bigint NOT NULL,
+					level character varying(64) NOT NULL,
+					message text,
+					PRIMARY KEY (id)
+				);
+			""")
+			self.cursor.execute("ALTER TABLE IF EXISTS public.log OWNER TO %s;" % self.path.user)
 			self.cursor.execute("CREATE OR REPLACE VIEW public.sessions AS SELECT DISTINCT session_id as sid FROM public.hashes order by session_id;")
 			self.cursor.execute("ALTER TABLE public.sessions OWNER TO %s;" % self.path.user)
 
@@ -151,6 +172,10 @@ class PGEngine(DBEngine):
 		
 	def writeGroupRecord(self, hash: str, fname: str, size: int):
 		self.execOne("INSERT INTO public.results(session_id, groupId, path, size) VALUES (%s, %s, %s, %s)", (PGEngine.SessionId, hash, fname, size))
+		self.connection.commit()
+	
+	def writeLog(self, td: int, level: str, msg: str):
+		self.execOne("INSERT INTO public.log(td, sid, pid, level, message) VALUES (%s, %s, %s, %s, %s)", (td, PGEngine.SessionId, os.getpid(), level, msg))
 		self.connection.commit()
 
 	def cleanup(self):

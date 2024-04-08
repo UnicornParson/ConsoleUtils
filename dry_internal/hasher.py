@@ -24,6 +24,7 @@ def hashFile(fname: str, onProgressStr = None):
 			if onProgressStr:
 				onProgressStr("process file %s %0.3f%%" % (fname, prc))
 			hasher.update(chunk)
+			del chunk
 			chunk = a_file.read(block_size)
 			processedSize += block_size
 

@@ -40,6 +40,14 @@ from patoolib.configuration import App
 from common import *
 from dry_internal import *
 from dry_internal import DBEngine, hasher
+
+#########################################################################################################
+
+class Constants:
+	MP_scale = 4
+
+#########################################################################################################
+
 class LoggerMode(enum.Enum):
 	verboseMode = 0
 	quietMode = 1
@@ -91,10 +99,13 @@ class Logger:
 		if self.printMode not in [LoggerMode.progressAndErrors, LoggerMode.progressVerbose]:
 			return
 		timediff = mstime() - self.stats.startTime
-		self.progressOutputLine[1] = "Files %d of %d done (%s of %s)" % (self.stats.filesCount,
-																														self.stats.totalCount,
-																														common.StrUtils.convert_bytes(self.stats.filesSize),
-																														common.StrUtils.convert_bytes(self.stats.totalSize))
+		s_count = "%d" % self.stats.totalCount
+		if not self.stats.totalCount:
+			s_count = "???"
+		s_size = common.StrUtils.convert_bytes(self.stats.totalSize)
+		if not self.stats.totalSize:
+			s_size = "??? B"
+		self.progressOutputLine[1] = "Files %d of %s done (%s of %s)" % (self.stats.filesCount, s_count, common.StrUtils.convert_bytes(self.stats.filesSize), s_size)
 		self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
 		self.saveOutputLines()
 
@@ -110,7 +121,10 @@ class Logger:
 			return
 
 		timediff = mstime() - self.stats.startTime
-		self.progressOutputLine[1] = "[{%d} of {%d}] {%s}" % (self.hashIndex, totalCount, hash)
+		if totalCount:
+			self.progressOutputLine[1] = "[{%d} of {%d}] {%s}" % (self.hashIndex, totalCount, hash)
+		else:
+			self.progressOutputLine[1] = "[{%d} of ????] {%s}" % (self.hashIndex, hash)
 		self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
 		self.saveOutputLines()
 
@@ -243,8 +257,9 @@ class FolderProcessor:
 		self.noarch = False
 		self.tmpBase = "."
 		self.mpPool = []
-		self.mpPoolMaxSize = 16
+		self.mpPoolMaxSize = Constants.MP_scale
 		self.mpqueue = Queue()
+		self.initialTime = datetime.datetime.now()
 		if not seed:
 			self.seed = mstime()
 
@@ -306,9 +321,8 @@ class FolderProcessor:
 	@timing
 	def joinPool(self):
 		while self.mpPool:
-			print("wait pool.. sz: %d" % len(self.mpPool))
+			self.logger.verboseLog("wait pool.. sz: %d" % len(self.mpPool))
 			self.mpWaitOne()
-
 
 	def mpWaitOne(self):
 		if self.mpPool:
@@ -320,7 +334,7 @@ class FolderProcessor:
 			self.logger.stats.filesCount += 1
 			self.logger.stats.filesSize += fileSize
 			self.logger.printIndexProgress(printableFileName)
-			print("joined p_sz:%d c:%d sz:%d p:%s" % (len(self.mpPool), self.logger.stats.filesCount, self.logger.stats.filesSize, printableFileName) )
+			self.logger.verboseLog("joined p_sz:%d c:%d sz:%d p:%s" % (len(self.mpPool), self.logger.stats.filesCount, self.logger.stats.filesSize, printableFileName) )
 			gc.collect()
 
 
@@ -437,25 +451,37 @@ class FolderProcessor:
 			chunk1 = f1.read(self.comparatorBlockSize)
 			chunk2 = f2.read(self.comparatorBlockSize)
 		return True
-	
 	@staticmethod
-	def asyncReadBody(path: str, pgSettngs, q, printableFileName):
+	def timeOffset(initialTime: datetime.datetime):
+		now = datetime.datetime.now()
+		diff = (now - initialTime) 
+		return diff.microseconds
+
+	@staticmethod
+	def asyncReadBody(path: str, pgSettngs, q, printableFileName, initialTime: datetime.datetime):
 		dbEngine = DBEngine.PGEngine()
 		dbEngine.open(pgSettngs)
 		fileSize = 0
 		e_msg = ""
 		try:
+			before = datetime.datetime.now()
+			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "process %s" % printableFileName)
 			hashStr = hasher.hashFile(path, None)
 			fileSize = os.path.getsize(path)
 			dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
+			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "DONE %s in %s" % (printableFileName, (datetime.datetime.now() - before)))
 		except KeyboardInterrupt:
-			pass
+			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Error, "on KeyboardInterrupt")
+			
 		except Exception as e:
-			e_msg = "cannot read file %s  exception: %s" % (path, str(e))
+			tb = traceback.format_exc()
+			e_msg = "cannot read file %s  exception: %s, tb:" % (path, str(e), tb)
 			q.put( (printableFileName, 0, e_msg) )
+			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Error, e_msg)
 			print("ERROR! ", (printableFileName, 0, e_msg))
 			return
 		q.put( (printableFileName, fileSize, e_msg) )
+		dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "exit %s" % printableFileName)
 		
 
 		
@@ -470,7 +496,7 @@ class FolderProcessor:
 		while len(self.mpPool) >= self.mpPoolMaxSize:
 			##print("pool is closed! wait")
 			self.mpWaitOne()
-		p = Process(target=FolderProcessor.asyncReadBody, args=(path, self.pgPath, self.mpqueue, printableFileName))
+		p = Process(target=FolderProcessor.asyncReadBody, args=(path, self.pgPath, self.mpqueue, printableFileName, self.initialTime))
 		p.start()
 		self.mpPool.append(p)
 
@@ -646,8 +672,8 @@ def main() -> int :
 	parser.add_argument("--noarchive", action="store_true", help="don't open archives, process as usual files")
 	parser.add_argument("--progress", action="store_true", help="print progress line")
 	parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
-	parser.add_argument("--mp", action="store_true", help="print progress line")
-	parser.add_argument("path", help="parallel scan")
+	parser.add_argument("--mp", action="store_true", help="parallel processing (%d processes)" % Constants.MP_scale)
+	parser.add_argument("path", help="folder to scan")
 
 	args = parser.parse_args()
 	seed = str(mstime())

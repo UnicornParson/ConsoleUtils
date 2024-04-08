@@ -38,17 +38,13 @@ optional arguments:
   --noprescan           skip prescan step (calculate summary counts for
                         progress displayed.) it can take a long time on large
                         folders
+  --mp                  parallel scan
 ```
-### required python3 packages:
- - BeautifulSoup
- - reprint
 
 ### 3rd-party:
 patool from https://wummel.github.io/patool/
 
-### Brokern windows / Todo:
-- multiprocessing version in progress. 
-  temporary results in dryMP file
+
 
 
 ## csvmerger
