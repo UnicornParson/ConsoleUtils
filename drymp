@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# run dry in mp mode with default cfg
+
+time dry --noprescan --mp --progress $1
