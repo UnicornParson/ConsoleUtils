@@ -44,7 +44,7 @@ from dry_internal import DBEngine, hasher
 #########################################################################################################
 
 class Constants:
-	MP_scale = 4
+	MP_scale = 8
 
 #########################################################################################################
 
@@ -243,8 +243,9 @@ class FolderProcessor:
 		self.seed = seed
 		self.tmpFolder = ""
 		self.subseedIndex = 0
-		self.useprescan = not args.noprescan and not self.mp
 		self.mp = args.mp
+		self.useprescan = not args.noprescan and not self.mp
+		
 		self.currentArchive = ""
 		self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk", ".mp4", ".deb", ".rpm", ".img"]
 
@@ -280,6 +281,11 @@ class FolderProcessor:
 			self.useprescan = not args.noprescan
 
 		if self.mp:
+			self.noarch = True
+			self.useprescan = False
+		
+		if args.close_latest:
+			self.mp = False
 			self.noarch = True
 			self.useprescan = False
 
@@ -484,7 +490,19 @@ class FolderProcessor:
 		dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "exit %s" % printableFileName)
 		
 
-		
+	def closeLastSession(self):
+		if not self.pgPath.filled():
+			raise ValueError("invalid pgconfig")
+		with output(output_type="list", initial_len=self.logger.progressPanelLinesCount, interval = 0) as self.logger.progressOutputLine:
+			self.dbEngine = DBEngine.PGEngine()
+			self.dbEngine.open(self.pgPath)
+			lastSession = self.dbEngine.lastSession()
+			if not lastSession:
+				print("uncompleted sessions not found")
+				return
+			print("close session %d" % lastSession)
+			DBEngine.PGEngine.SessionId = lastSession
+			self.closeSession()
 
 
 	def asyncRead(self, path: str, fnamePrefix = ""):
@@ -575,9 +593,14 @@ class FolderProcessor:
 
 	@timing
 	def groupRecords(self):
+		if not self.logger.progressOutputLine:
+			raise AssertionError ("no progressOutputLine in printIndexProgress!")
 		groups = {}
 		nuHashes = self.dbEngine.notUniqueHashes()
+		i = 1
 		for hash in nuHashes:
+			h_start = datetime.datetime.now()
+			i += 1
 			self.logger.verboseLog(hash + " :: " + str(self.dbEngine.filesByHash(hash)))
 			self.logger.hashIndex += 1
 			self.logger.printReduceProgress(hash, len(nuHashes))
@@ -589,7 +612,10 @@ class FolderProcessor:
 			groups[hash]["size"] = files[0][1]
 			for filename in groups[hash]["path"]:
 				self.dbEngine.writeGroupRecord(hash, filename, groups[hash]["size"])
-
+			hps = datetime.timedelta(seconds=1) / (datetime.datetime.now() - h_start)
+			stat_msg = "process hash (%d / %d) %s,  %.2f hash/s" % (i, len(nuHashes), hash, hps)
+			self.dbEngine.writeLog(FolderProcessor.timeOffset(self.initialTime), DBEngine.DbLogLevel.Debug, stat_msg)
+			self.logger.progressOutputLine[1] = stat_msg
 		return groups
 
 	@timing
@@ -636,29 +662,32 @@ class FolderProcessor:
 			self.readDir(self.inPath)
 			self.joinPool()
 			self.logger.verboseLog("indexing stage: done")
-			self.logger.progressOutputLine[0] = "----[ comparation stage ]----"
 			fssync()
-			groups = self.groupRecords()
-			self.logger.verboseLog("comparation stage: done")
-			groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
-			if self.fmt == Formats.json:
-				outFile = open(self.target, 'w')
-				outFile.write(groups_json)
-				outFile.close()
-			elif self.fmt == Formats.stdout:
-				print(groups_json)
-			elif self.fmt == Formats.html:
-				generator = HTMLGenerator.HTMLGenerator()
-				htmlText = generator.generate(groups, self.inPath)
-				htmlFile = open(self.target, 'w')
-				htmlFile.write(htmlText)
-				htmlFile.close()
-			else:
-				self.logger.log("database saved to " + self.dbPath)
-			self.logger.progressOutputLine[0] = "----[ done ]----"
-			self.dbEngine.cleanup()
-			self.dbEngine.close()
-
+			self.closeSession()
+			
+	
+	def closeSession(self):		
+		self.logger.progressOutputLine[0] = "----[ comparation stage ]----"
+		groups = self.groupRecords()
+		self.logger.verboseLog("comparation stage: done")
+		groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
+		if self.fmt == Formats.json:
+			outFile = open(self.target, 'w')
+			outFile.write(groups_json)
+			outFile.close()
+		elif self.fmt == Formats.stdout:
+			print(groups_json)
+		elif self.fmt == Formats.html:
+			generator = HTMLGenerator.HTMLGenerator()
+			htmlText = generator.generate(groups, self.inPath)
+			htmlFile = open(self.target, 'w')
+			htmlFile.write(htmlText)
+			htmlFile.close()
+		else:
+			self.logger.log("database saved to " + self.dbPath)
+		self.logger.progressOutputLine[0] = "----[ done ]----"
+		self.dbEngine.cleanup()
+		self.dbEngine.close()
 
 def main() -> int :
 	parser = argparse.ArgumentParser(add_help=True, description="Duplicates detector [Don't repeat yourself!]")
@@ -673,6 +702,8 @@ def main() -> int :
 	parser.add_argument("--progress", action="store_true", help="print progress line")
 	parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
 	parser.add_argument("--mp", action="store_true", help="parallel processing (%d processes)" % Constants.MP_scale)
+	parser.add_argument("--close_latest", action="store_true", help="close last ioncompleted session")
+
 	parser.add_argument("path", help="folder to scan")
 
 	args = parser.parse_args()
@@ -681,7 +712,7 @@ def main() -> int :
 	soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
 	resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
 	DBEngine.PGEngine.makeNodeKeys(1, mstime())
-	lm = LoggerMode.verboseMode
+	loggerMode = LoggerMode.verboseMode
 	if args.verbose and args.progress:
 		loggerMode = LoggerMode.progressVerbose
 	elif args.progress:
@@ -693,6 +724,12 @@ def main() -> int :
 	logger = Logger(loggerMode, seed)
 	TimingUtil.CTimingUtil.timingLoggerWrapper = logger
 	executor = None
+
+	if args.close_latest:
+		executor = FolderProcessor(logger, args, seed)
+		executor.closeLastSession()
+		return 0
+
 	try:
 		executor = FolderProcessor(logger, args, seed)
 		if not args.noprescan:

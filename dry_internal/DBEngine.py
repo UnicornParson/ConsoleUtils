@@ -29,7 +29,9 @@ class DBEngine:
 	def close(self):
 		pass
 	def cleanup(self):
-		pass	
+		pass
+	def writeLog(self, td: int, level: str, msg: str):
+		pass
 
 class PgPath:
 	def __init__(self) -> None:
@@ -142,6 +144,18 @@ class PGEngine(DBEngine):
 		self.connection.commit()
 		PGEngine.AlreadyCreated = True
 		print("create db OK")
+
+	def lastSession(self):
+		self.checkDb()
+		session = None
+		try:
+			self.cursor.execute("SELECT MAX(session_id)FROM public.hashes")
+			qrc = self.cursor.fetchone()
+			if qrc:
+				session = qrc[0]
+		except psycopg2.ProgrammingError:
+			session = None
+		return session
 
 	def notUniqueHashes(self):
 		self.checkDb()
