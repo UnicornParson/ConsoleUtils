@@ -1,5 +1,10 @@
 import sqlite3
-import psycopg2
+try:
+    import psycopg2
+except ImportError:
+    # Fall back to psycopg2cffi
+    from psycopg2cffi import compat
+    compat.register()
 import os
 
 class DbLogLevel:
