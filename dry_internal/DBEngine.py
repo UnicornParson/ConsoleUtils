@@ -1,11 +1,17 @@
 import sqlite3
-try:
-    import psycopg2
-except ImportError:
-    # Fall back to psycopg2cffi
-    from psycopg2cffi import compat
-    compat.register()
 import os
+try:
+	import psycopg as pg
+	print("db engine is psycopg 3")
+except ImportError:
+	try:
+		import psycopg2 as pg
+		print("db engine is psycopg 2")
+	except ImportError:
+		# Fall back to psycopg2cffi
+		from psycopg2cffi import compat
+		compat.register()
+		print("db engine is psycopg2cffi")
 
 class DbLogLevel:
 	Debug = "DEBUG"
@@ -57,17 +63,33 @@ class PGEngine(DBEngine):
 		PGEngine.ProduccerId = produccer
 		PGEngine.SessionId = session
 
-
 	def __init__(self):
 		self.connection = None
 		self.cursor = None
 		self.path = ""
 
+	def is_opened(self) -> bool:
+		try:
+			cur = self.connection.cursor()
+			cur.execute('SELECT 1')
+			return True
+		except pg.OperationalError:
+			return False
+		except Exception as e:
+			print(f"unexpected exception when db check {e}")
+		return False
+
+	def keep_online(self):
+		if self.is_opened():
+			return
+		self.close()
+		self.open(self.path)
+
 	def open(self, path: PgPath):
 		if not path.filled():
 			raise ValueError("Invalig pgconfig")
 		self.path = path
-		self.connection = psycopg2.connect(dbname=path.dbname, user=path.user, password=path.password, host=path.host, port="5432")
+		self.connection = pg.connect(dbname=path.dbname, user=path.user, password=path.password, host=path.host, port="5432", connect_timeout=5)
 		if not self.connection:
 			raise ConnectionError("cannot connect to %s:%s" % (path.host, path.dbname))
 		self.cursor = self.connection.cursor()
@@ -81,6 +103,7 @@ class PGEngine(DBEngine):
 
 	def execOne(self, q, args):
 		self.checkDb()
+		self.keep_online()
 		try:
 			self.cursor.execute(q, args)
 		except Exception as e:
@@ -158,17 +181,18 @@ class PGEngine(DBEngine):
 			qrc = self.cursor.fetchone()
 			if qrc:
 				session = qrc[0]
-		except psycopg2.ProgrammingError:
+		except pg.ProgrammingError:
 			session = None
 		return session
 
 	def notUniqueHashes(self):
 		self.checkDb()
+		self.keep_online()
 		rc = []
 		self.execOne("SELECT DISTINCT hash FROM public.hashes WHERE session_id=%s GROUP BY hash HAVING COUNT(*) > 1", (PGEngine.SessionId,))
 		try:
 			qrc = self.cursor.fetchall()
-		except psycopg2.ProgrammingError:
+		except pg.ProgrammingError:
 			qrc = []
 		for row in qrc:
 			rc.append(row[0])
@@ -176,11 +200,12 @@ class PGEngine(DBEngine):
 
 	def filesByHash(self, hash: str):
 		self.checkDb()
+		self.keep_online()
 		rc = []
 		self.execOne("SELECT path, size FROM public.hashes  WHERE hash=%s and session_id=%s", (hash,PGEngine.SessionId))
 		try:
 			qrc = self.cursor.fetchall()
-		except psycopg2.ProgrammingError:
+		except pg.ProgrammingError:
 			qrc = []
 		for row in qrc:
 			rc.append((row[0], row[1]))
@@ -243,6 +268,7 @@ class SqliteEngine(DBEngine):
 
 	def notUniqueHashes(self):
 		self.checkDb()
+		self.keep_online()
 		rc = []
 		for row in self.cursor.execute("SELECT DISTINCT hash FROM files GROUP BY hash HAVING COUNT(*) > 1"):
 			rc.append(row[0])
@@ -250,6 +276,7 @@ class SqliteEngine(DBEngine):
 
 	def filesByHash(self, hash: str):
 		self.checkDb()
+		self.keep_online()
 		rc = []
 		for row in self.cursor.execute("SELECT path, size FROM files  WHERE hash='" + hash + "';"):
 			rc.append((row[0], row[1]))
@@ -257,11 +284,13 @@ class SqliteEngine(DBEngine):
 
 	def writeFileInfo(self, path: str, hash: str, size: int):
 		self.checkDb()
+		self.keep_online()
 		self.cursor.execute("INSERT INTO files VALUES (?,?,?)", (path, hash, size))
 		self.connection.commit()
 
 	def writeGroupRecord(self, hash: str, fname: str, size: int):
 		self.checkDb()
+		self.keep_online()
 		self.cursor.execute("INSERT INTO result VALUES (?,?,?)", (hash, fname, size))
 		self.connection.commit()
 

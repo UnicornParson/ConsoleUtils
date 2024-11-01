@@ -1,4 +1,5 @@
 psycopg2
+psycopg
 beautifulsoup4>=4.12.3
 common>=0.1.2
 Pillow>=11.0.0

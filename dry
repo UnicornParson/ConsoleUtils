@@ -471,7 +471,7 @@ class FolderProcessor:
 			
 		except Exception as e:
 			tb = traceback.format_exc()
-			e_msg = "cannot read file %s  exception: %s, tb:" % (path, str(e), tb)
+			e_msg = "cannot read file %s  exception: %s, tb: %s" % (path, str(e), str(tb))
 			q.put( (printableFileName, 0, e_msg) )
 			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Error, e_msg)
 			print("ERROR! ", (printableFileName, 0, e_msg))
