@@ -1,8 +1,5 @@
 #!/usr/bin/env pypy3
 import sys
-if not hasattr(sys, "version_info") or sys.version_info < (3, 5):
-		raise SystemExit("This program requires Python 3.5 or later.")
-
 import argparse
 import os
 import gc
@@ -14,7 +11,6 @@ from multiprocessing import Process, Queue
 import resource
 from pathlib import *
 from collections import OrderedDict
-
 import traceback
 import configparser
 
@@ -29,7 +25,7 @@ from patoolib.configuration import App
 
 from common import *
 from dry_internal import *
-from dry_internal import DBEngine, hasher
+from dry_internal import DBEngine, hasher, HTMLGenerator
 
 #########################################################################################################
 
