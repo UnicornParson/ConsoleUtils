@@ -7,73 +7,75 @@ from confluent_kafka import Consumer
 import json
 import time
 import datetime as dt
+
 def mstime() -> int:
-  return round(time.time() * 1000)
+    return round(time.time() * 1000)
+
 def mpSeed() -> str:
-  return "p%d_%d" % (os.getpid(), mstime())
+    return "p%d_%d" % (os.getpid(), mstime())
 
 def on_assign (c,ps):
-	for p in ps:
-		p.offset = 0
-	c.assign(ps)
+    for p in ps:
+        p.offset = 0
+    c.assign(ps)
 
 def main() -> int :
-	parser = argparse.ArgumentParser(add_help=True, description="Kafka dumper")
-	parser.add_argument("server", help="bootstrap server")
-	parser.add_argument("topic", help="topic to dump")
-	args = parser.parse_args()
-	servers = args.server
-	topic = args.topic
-	outFname = "./%s_%s.dump.txt" % (topic, mpSeed())
-	print("dump [%s]/%s to %s" % (servers, topic, outFname))
-	count = 0
-	printLimit = dt.timedelta(seconds=10)
-	totalStart = dt.datetime.now()
-	start = dt.datetime.now()
+    parser = argparse.ArgumentParser(add_help=True, description="Kafka dumper")
+    parser.add_argument("server", help="bootstrap server")
+    parser.add_argument("topic", help="topic to dump")
+    args = parser.parse_args()
+    servers = args.server
+    topic = args.topic
+    outFname = "./%s_%s.dump.txt" % (topic, mpSeed())
+    print("dump [%s]/%s to %s" % (servers, topic, outFname))
+    count = 0
+    printLimit = dt.timedelta(seconds=10)
+    totalStart = dt.datetime.now()
+    start = dt.datetime.now()
 
-	c = Consumer({
-		'bootstrap.servers': servers,
-		'enable.auto.commit': False,
-		'group.id': "dumper_grp",
-		'auto.offset.reset': 'earliest',
-		'default.topic.config': {'auto.offset.reset': 'earliest'}
-	})
+    c = Consumer({
+        'bootstrap.servers': servers,
+        'enable.auto.commit': False,
+        'group.id': "dumper_grp",
+        'auto.offset.reset': 'earliest',
+        'default.topic.config': {'auto.offset.reset': 'earliest'}
+    })
 
-	c.subscribe([topic], on_assign=on_assign)
-	with open(outFname, "w") as outfile:
-		while True:
-			try:
-				msg = c.poll(10.0)
-				if msg is None:
-					print("receive timeout. end of topic?")
-					break
-				if msg.error():
-					print("Consumer error: {}".format(msg.error()))
-					continue
-				v = "{}"
-				if msg.value():
-					v = msg.value().decode()
-				record = {
-					"offset": msg.offset(),
-					"partition": msg.partition(),
-					"value": v,
-					"timestamp": msg.timestamp(),
-					"key": msg.key(),
-					"topic": msg.topic(),
-					"headers": msg.headers()
-				}
-				outfile.write(str(record))
-				outfile.write("\n")
-				outfile.flush()
-				count += 1
-				diff = dt.datetime.now() - start
-				if diff > printLimit:
-					start = dt.datetime.now()
-					print("%d messages dumped. speed %d records/sec. last offset: %d" % (count, int(count / diff.total_seconds()), msg.offset()))
-			except KeyboardInterrupt:
-				break
-		c.close()
-	print("---\nDONE.  %d messages dumped. duration: %s" % (count, (dt.datetime.now() - totalStart)))
+    c.subscribe([topic], on_assign=on_assign)
+    with open(outFname, "w") as outfile:
+        while True:
+            try:
+                msg = c.poll(10.0)
+                if msg is None:
+                    print("receive timeout. end of topic?")
+                    break
+                if msg.error():
+                    print("Consumer error: {}".format(msg.error()))
+                    continue
+                v = "{}"
+                if msg.value():
+                    v = msg.value().decode()
+                record = {
+                    "offset": msg.offset(),
+                    "partition": msg.partition(),
+                    "value": v,
+                    "timestamp": msg.timestamp(),
+                    "key": msg.key(),
+                    "topic": msg.topic(),
+                    "headers": msg.headers()
+                }
+                outfile.write(str(record))
+                outfile.write("\n")
+                outfile.flush()
+                count += 1
+                diff = dt.datetime.now() - start
+                if diff > printLimit:
+                    start = dt.datetime.now()
+                    print("%d messages dumped. speed %d records/sec. last offset: %d" % (count, int(count / diff.total_seconds()), msg.offset()))
+            except KeyboardInterrupt:
+                break
+        c.close()
+    print("---\nDONE.  %d messages dumped. duration: %s" % (count, (dt.datetime.now() - totalStart)))
 
 if __name__ == '__main__':
-	sys.exit(main())
+    sys.exit(main())

@@ -30,702 +30,699 @@ from dry_internal import DBEngine, hasher, HTMLGenerator
 #########################################################################################################
 
 class Constants:
-	MP_scale = 8
+    MP_scale = 8
 
 #########################################################################################################
 
 class LoggerMode(enum.Enum):
-	verboseMode = 0
-	quietMode = 1
-	progressAndErrors = 2
-	progressVerbose = 3
+    verboseMode = 0
+    quietMode = 1
+    progressAndErrors = 2
+    progressVerbose = 3
 
 #########################################################################################################
 
 class Logger:
-	def __init__(self, mode: LoggerMode, seed: str):
-		self.printMode = mode
-		self.stats = Stats()
-		self.hashIndex = 0
-		self.progressOutputLine = None
-		self.progressPanelLinesCount = 4
-		self.logfile = None
-		self.seed = seed
-		self.createLogfile()
+    def __init__(self, mode: LoggerMode, seed: str):
+        self.printMode = mode
+        self.stats = Stats()
+        self.hashIndex = 0
+        self.progressOutputLine = None
+        self.progressPanelLinesCount = 4
+        self.logfile = None
+        self.seed = seed
+        self.createLogfile()
 
-	def isVerbose(self) -> bool:
-		return self.printMode in [LoggerMode.verboseMode, LoggerMode.progressVerbose]
+    def isVerbose(self) -> bool:
+        return self.printMode in [LoggerMode.verboseMode, LoggerMode.progressVerbose]
 
-	def createLogfile(self):
-		if not self.seed:
-			self.seed = str(mstime())
-		logFileName = "%s/log/dry.%s.log" % (bindir, self.seed)
-		self.logfile = open(logFileName, 'a')
-		self.logfile.write("start dry %s\n" % str(mstime()))
-		self.logfile.flush()
+    def createLogfile(self):
+        if not self.seed:
+            self.seed = str(mstime())
+        logFileName = "%s/log/dry.%s.log" % (bindir, self.seed)
+        self.logfile = open(logFileName, 'a')
+        self.logfile.write("start dry %s\n" % str(mstime()))
+        self.logfile.flush()
 
-	def writeMsg(self, msg: str):
-		if self.logfile:
-			dateString = str(datetime.datetime.now())
-			self.logfile.write("[%s] %s \n" % (dateString, msg))
-			self.logfile.flush()
+    def writeMsg(self, msg: str):
+        if self.logfile:
+            dateString = str(datetime.datetime.now())
+            self.logfile.write(f"[{dateString}] {msg} \n")
+            self.logfile.flush()
 
-	def logFatal(self, msg):
-			self.logError(msg)
-			sys.exit(1)
+    def logFatal(self, msg):
+        self.logError(msg)
+        sys.exit(1)
 
-	def logError(self, msg):
-			print(str(msg), file=sys.stderr)
-			self.writeMsg("[ERROR] %s" % str(msg))
+    def logError(self, msg):
+        print(str(msg), file=sys.stderr)
+        self.writeMsg(f"[ERROR] {msg}")
 
-	def printIndexProgress(self, fname: str):
-		if not self.progressOutputLine:
-			self.logFatal("no progressOutputLine in printIndexProgress!")
+    def printIndexProgress(self, fname: str):
+        if not self.progressOutputLine:
+            self.logFatal("no progressOutputLine in printIndexProgress!")
 
-		if self.printMode not in [LoggerMode.progressAndErrors, LoggerMode.progressVerbose]:
-			return
-		timediff = mstime() - self.stats.startTime
-		s_count = "%d" % self.stats.totalCount
-		if not self.stats.totalCount:
-			s_count = "???"
-		s_size = common.StrUtils.convert_bytes(self.stats.totalSize)
-		if not self.stats.totalSize:
-			s_size = "??? B"
-		self.progressOutputLine[1] = "Files %d of %s done (%s of %s)" % (self.stats.filesCount, s_count, common.StrUtils.convert_bytes(self.stats.filesSize), s_size)
-		self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
-		self.saveOutputLines()
+        if self.printMode not in [LoggerMode.progressAndErrors, LoggerMode.progressVerbose]:
+            return
+        timediff = mstime() - self.stats.startTime
+        s_count = "%d" % self.stats.totalCount
+        if not self.stats.totalCount:
+            s_count = "???"
+        s_size = common.StrUtils.convert_bytes(self.stats.totalSize)
+        if not self.stats.totalSize:
+            s_size = "??? B"
+        self.progressOutputLine[1] = "Files %d of %s done (%s of %s)" % (self.stats.filesCount, s_count, common.StrUtils.convert_bytes(self.stats.filesSize), s_size)
+        self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
+        self.saveOutputLines()
 
-	def saveOutputLines(self):
-		self.writeMsg("progress:")
-		for line in self.progressOutputLine:
-			self.writeMsg(line)
+    def saveOutputLines(self):
+        self.writeMsg("progress:")
+        for line in self.progressOutputLine:
+            self.writeMsg(line)
 
-	def printReduceProgress(self, hash, totalCount):
-		if not self.progressOutputLine:
-			self.logFatal("no progressOutputLine in printIndexProgress!")
-		if self.printMode not in [LoggerMode.progressAndErrors, LoggerMode.progressVerbose]:
-			return
+    def printReduceProgress(self, hash, totalCount):
+        if not self.progressOutputLine:
+            self.logFatal("no progressOutputLine in printIndexProgress!")
+        if self.printMode not in [LoggerMode.progressAndErrors, LoggerMode.progressVerbose]:
+            return
 
-		timediff = mstime() - self.stats.startTime
-		if totalCount:
-			self.progressOutputLine[1] = "[{%d} of {%d}] {%s}" % (self.hashIndex, totalCount, hash)
-		else:
-			self.progressOutputLine[1] = "[{%d} of ????] {%s}" % (self.hashIndex, hash)
-		self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
-		self.saveOutputLines()
+        timediff = mstime() - self.stats.startTime
+        if totalCount:
+            self.progressOutputLine[1] = "[{%d} of {%d}] {%s}" % (self.hashIndex, totalCount, hash)
+        else:
+            self.progressOutputLine[1] = "[{%d} of ????] {%s}" % (self.hashIndex, hash)
+        self.progressOutputLine[2] = "duration: %s" % (common.StrUtils.msToHours(timediff))
+        self.saveOutputLines()
 
-	def verboseLog(self, msg):
-		if self.printMode in [LoggerMode.verboseMode, LoggerMode.progressVerbose]:
-			print(msg)
-		self.writeMsg(str(msg))
+    def verboseLog(self, msg):
+        if self.printMode in [LoggerMode.verboseMode, LoggerMode.progressVerbose]:
+            print(msg)
+        self.writeMsg(str(msg))
 
-	def log(self, msg):
-		if self.printMode != LoggerMode.quietMode:
-			print(msg)
-		self.writeMsg(str(msg))
+    def log(self, msg):
+        if self.printMode != LoggerMode.quietMode:
+            print(msg)
+        self.writeMsg(str(msg))
 
 #########################################################################################################
 class ConfigReader:
-	def __init__(self, logger: Logger, fname: str):
-		self.logger = logger
-		self.fname = fname
-		self.fmt = None
-		self.tmp = None
-		self.noarch = None
-		self.noprescan = None
-		self.rootTag = "DRY"
-		self.fmtTag = "fmt"
-		self.tmpTag = "tmp"
-		self.noarchTag = "noarch"
-		self.noprescanTag = "noprescan"
-		self.storageTag = "storage"
-		self.pghostTag = "pghost"
-		self.pghostTag = "pghost"
-		self.pguserTag = "pguser"
-		self.pgpassTag = "pgpass"
-		self.pgdbTag = "pgdb"
-		self.storageType = DBEngine.DBEngine.StorageSqlite
-		self.parser = configparser.ConfigParser()
-		self.pgPath = DBEngine.PgPath()
-		self.load()
+    def __init__(self, logger: Logger, fname: str):
+        self.logger = logger
+        self.fname = fname
+        self.fmt = None
+        self.tmp = None
+        self.noarch = None
+        self.noprescan = None
+        self.rootTag = "DRY"
+        self.fmtTag = "fmt"
+        self.tmpTag = "tmp"
+        self.noarchTag = "noarch"
+        self.noprescanTag = "noprescan"
+        self.storageTag = "storage"
+        self.pghostTag = "pghost"
+        self.pghostTag = "pghost"
+        self.pguserTag = "pguser"
+        self.pgpassTag = "pgpass"
+        self.pgdbTag = "pgdb"
+        self.storageType = DBEngine.DBEngine.StorageSqlite
+        self.parser = configparser.ConfigParser()
+        self.pgPath = DBEngine.PgPath()
+        self.load()
 
 
-	def parseBool(self, s: str):
-		if s.lower() == "yes" or s.lower() == "true":
-			return True
-		if s.lower() == "no" or s.lower() == "false":
-			return False
-		return None
+    def parseBool(self, s: str):
+        if s.lower() == "yes" or s.lower() == "true":
+            return True
+        if s.lower() == "no" or s.lower() == "false":
+            return False
+        return None
 
-	def keyExist(self, key: str, section)-> bool:
-		rc = False
-		try:
-			rc = (None != section[key])
-		except Exception:
-			rc = False
-		return rc
+    def keyExist(self, key: str, section)-> bool:
+        try:
+            return (None != section[key])
+        except Exception:
+            return False
 
+    def load(self):
+        if not os.path.isfile(self.fname):
+            self.logger.verboseLog("no ini file %s" % self.fname)
+            return
 
-	def load(self):
-		if not os.path.isfile(self.fname):
-			self.logger.verboseLog("no ini file %s" % self.fname)
-			return
-
-		self.parser.read(self.fname)
-		if  self.rootTag not in self.parser.sections():
-			self.logger.verboseLog("no %s section in config file" % self.rootTag)
-			return
+        self.parser.read(self.fname)
+        if  self.rootTag not in self.parser.sections():
+            self.logger.verboseLog("no %s section in config file" % self.rootTag)
+            return
 
 
-		section = self.parser[self.rootTag]
-		self.logger.verboseLog("ini cfg")
+        section = self.parser[self.rootTag]
+        self.logger.verboseLog("ini cfg")
 
-		for s in section:
-			self.logger.verboseLog("%s - %s" % (str(s), section[s]))
+        for s in section:
+            self.logger.verboseLog("%s - %s" % (str(s), section[s]))
 
-		if self.keyExist(self.fmtTag, section):
-			self.fmt = Formats.parse(section[self.fmtTag])
+        if self.keyExist(self.fmtTag, section):
+            self.fmt = Formats.parse(section[self.fmtTag])
 
-		if self.keyExist(self.tmpTag, section):
-			self.tmp = section[self.tmpTag]
+        if self.keyExist(self.tmpTag, section):
+            self.tmp = section[self.tmpTag]
 
-		if self.keyExist(self.noarchTag, section):
-			self.noarch = self.parseBool(section[self.noarchTag])
+        if self.keyExist(self.noarchTag, section):
+            self.noarch = self.parseBool(section[self.noarchTag])
 
-		if self.keyExist(self.noprescanTag, section):
-			self.noprescan = self.parseBool(section[self.noprescanTag])
+        if self.keyExist(self.noprescanTag, section):
+            self.noprescan = self.parseBool(section[self.noprescanTag])
 
-		if self.keyExist(self.storageTag, section):
-			self.storageType = section[self.storageTag]
+        if self.keyExist(self.storageTag, section):
+            self.storageType = section[self.storageTag]
 
 
-		# PG section
-		if self.keyExist(self.pghostTag, section):
-			self.pgPath.host = section[self.pghostTag]
+        # PG section
+        if self.keyExist(self.pghostTag, section):
+            self.pgPath.host = section[self.pghostTag]
 
-		if self.keyExist(self.pguserTag, section):
-			self.pgPath.user = section[self.pguserTag]
+        if self.keyExist(self.pguserTag, section):
+            self.pgPath.user = section[self.pguserTag]
 
-		if self.keyExist(self.pgpassTag, section):
-			self.pgPath.password = section[self.pgpassTag]
+        if self.keyExist(self.pgpassTag, section):
+            self.pgPath.password = section[self.pgpassTag]
 
-		if self.keyExist(self.pgdbTag, section):
-			self.pgPath.dbname = section[self.pgdbTag]
+        if self.keyExist(self.pgdbTag, section):
+            self.pgPath.dbname = section[self.pgdbTag]
 
-		if self.storageType == DBEngine.PGEngine and not self.pgPath.filled():
-			raise ValueError("storage is pg but config is incomplete")
+        if self.storageType == DBEngine.PGEngine and not self.pgPath.filled():
+            raise ValueError("storage is pg but config is incomplete")
 
-		print("self.storageType ", self.storageType)
+        print("self.storageType ", self.storageType)
 
 #########################################################################################################
 class FolderProcessor:
-	def __init__(self, logger: Logger, args, seed: str):
-		self.logger = logger
+    def __init__(self, logger: Logger, args, seed: str):
+        self.logger = logger
 
-		self.fmt = Formats.invalid
-		if args.format:
-			self.fmt = Formats.parse(args.format)
-		self.comparatorBlockSize = 10240 #10k
-		self.seed = seed
-		self.tmpFolder = ""
-		self.subseedIndex = 0
-		self.mp = args.mp
-		self.useprescan = not args.noprescan and not self.mp
-		
-		self.currentArchive = ""
-		self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk", ".mp4", ".deb", ".rpm", ".img"]
+        self.fmt = Formats.invalid
+        if args.format:
+            self.fmt = Formats.parse(args.format)
+        self.comparatorBlockSize = 10240 #10k
+        self.seed = seed
+        self.tmpFolder = ""
+        self.subseedIndex = 0
+        self.mp = args.mp
+        self.useprescan = not args.noprescan and not self.mp
 
-		self.defaultConfigFname = bindir + "/config.ini"
-		self.defaultConfig = ConfigReader(self.logger, self.defaultConfigFname)
-		self.storageType = self.defaultConfig.storageType
-		self.dbEngine = DBEngine.makeEngine(self.storageType)
-		self.dbPath = ":memory:"
-		self.pgPath = self.defaultConfig.pgPath
-		self.noarch = False
-		self.tmpBase = "."
-		self.mpPool = []
-		self.mpPoolMaxSize = Constants.MP_scale
-		self.mpqueue = Queue()
-		self.initialTime = datetime.datetime.now()
-		if not seed:
-			self.seed = mstime()
+        self.currentArchive = ""
+        self.archiveExclusions = [".epub", "epub", "chm", ".chm", ".cd", ".CD", ".ova", ".vmdk", ".mp4", ".deb", ".rpm", ".img"]
 
-		self.noarch = args.noarchive
-		if self.defaultConfig.fmt != Formats.invalid:
-			self.fmt = self.defaultConfig.fmt
+        self.defaultConfigFname = bindir + "/config.ini"
+        self.defaultConfig = ConfigReader(self.logger, self.defaultConfigFname)
+        self.storageType = self.defaultConfig.storageType
+        self.dbEngine = DBEngine.makeEngine(self.storageType)
+        self.dbPath = ":memory:"
+        self.pgPath = self.defaultConfig.pgPath
+        self.noarch = False
+        self.tmpBase = "."
+        self.mpPool = []
+        self.mpPoolMaxSize = Constants.MP_scale
+        self.mpqueue = Queue()
+        self.initialTime = datetime.datetime.now()
+        if not seed:
+            self.seed = mstime()
 
-		if self.defaultConfig.tmp:
-			self.logger.verboseLog("set tmp %s" % self.defaultConfig.tmp)
-			self.tmpBase = self.defaultConfig.tmp
+        self.noarch = args.noarchive
+        if self.defaultConfig.fmt != Formats.invalid:
+            self.fmt = self.defaultConfig.fmt
 
-		if self.defaultConfig.noarch != None:
-			self.logger.verboseLog("set noarch %s" % self.defaultConfig.noarch)
-			self.noarch = self.defaultConfig.noarch
+        if self.defaultConfig.tmp:
+            self.logger.verboseLog("set tmp %s" % self.defaultConfig.tmp)
+            self.tmpBase = self.defaultConfig.tmp
 
-		if self.defaultConfig.noprescan != None:
-			self.logger.verboseLog("set noprescan %s" % self.defaultConfig.noprescan)
-			self.useprescan = not args.noprescan
+        if self.defaultConfig.noarch != None:
+            self.logger.verboseLog("set noarch %s" % self.defaultConfig.noarch)
+            self.noarch = self.defaultConfig.noarch
 
-		if self.mp:
-			self.noarch = True
-			self.useprescan = False
-		
-		if args.close_latest:
-			self.mp = False
-			self.noarch = True
-			self.useprescan = False
+        if self.defaultConfig.noprescan != None:
+            self.logger.verboseLog("set noprescan %s" % self.defaultConfig.noprescan)
+            self.useprescan = not args.noprescan
 
-		if self.fmt == Formats.invalid:
-			raise ParamsError("invalid format " + args.format)
+        if self.mp:
+            self.noarch = True
+            self.useprescan = False
 
-		self.inPath = args.path
-		if not os.path.isdir(self.inPath):
-			raise ParamsError("input must be a folder")
+        if args.close_latest:
+            self.mp = False
+            self.noarch = True
+            self.useprescan = False
 
-		self.compareContent = args.compare
+        if self.fmt == Formats.invalid:
+            raise ParamsError("invalid format " + args.format)
 
-		self.target = args.target
-		if not self.target:
-			self.target = "."
-		if self.fmt == Formats.sqlite:
-			self.storageType = DBEngine.DBEngine.StorageSqlite
-			self.dbEngine = DBEngine.makeEngine(self.storageType)
-		if os.path.isdir(self.target):
-			self.target += "/duplicatesReport.%s.%s" % (seed, Formats.ext(self.fmt))
-		if self.fmt == Formats.sqlite and self.target:
-			self.dbPath = self.target
-		self.logger.verboseLog("in: %s, out[%s]: %s" %  (self.inPath, args.format, self.target))
+        self.inPath = args.path
+        if not os.path.isdir(self.inPath):
+            raise ParamsError("input must be a folder")
 
-		if args.tmp:
-			self.tmpBase = args.tmp
+        self.compareContent = args.compare
 
-		self.archlimit = args.archlimit * (2**20)
-		astr = "ignore"
-		if not self.noarch:
-			astr = "\n\tprocess: yes\n\textract to %s\n\tlimit: %d Mb" % (self.tmpBase, args.archlimit)
-		self.logger.verboseLog("archive strategy: %s" % astr)
+        self.target = args.target
+        if not self.target:
+            self.target = "."
+        if self.fmt == Formats.sqlite:
+            self.storageType = DBEngine.DBEngine.StorageSqlite
+            self.dbEngine = DBEngine.makeEngine(self.storageType)
+        if os.path.isdir(self.target):
+            self.target += "/duplicatesReport.%s.%s" % (seed, Formats.ext(self.fmt))
+        if self.fmt == Formats.sqlite and self.target:
+            self.dbPath = self.target
+        self.logger.verboseLog("in: %s, out[%s]: %s" %  (self.inPath, args.format, self.target))
 
-	def getsubseed(self)-> str:
-		s = str(self.subseedIndex)
-		self.subseedIndex += 1
-		return s
+        if args.tmp:
+            self.tmpBase = args.tmp
 
-	@timing
-	def joinPool(self):
-		while self.mpPool:
-			self.logger.verboseLog("wait pool.. sz: %d" % len(self.mpPool))
-			self.mpWaitOne()
+        self.archlimit = args.archlimit * (2**20)
+        astr = "ignore"
+        if not self.noarch:
+            astr = "\n\tprocess: yes\n\textract to %s\n\tlimit: %d Mb" % (self.tmpBase, args.archlimit)
+        self.logger.verboseLog("archive strategy: %s" % astr)
 
-	def mpWaitOne(self):
-		if self.mpPool:
-			p = self.mpPool.pop(0)
-			p.join()
-			printableFileName, fileSize, err_msg = self.mpqueue.get()
-			p.terminate()
-			del p
-			self.logger.stats.filesCount += 1
-			self.logger.stats.filesSize += fileSize
-			self.logger.printIndexProgress(printableFileName)
-			self.logger.verboseLog("joined p_sz:%d c:%d sz:%d p:%s" % (len(self.mpPool), self.logger.stats.filesCount, self.logger.stats.filesSize, printableFileName) )
-			gc.collect()
+    def getsubseed(self)-> str:
+        s = str(self.subseedIndex)
+        self.subseedIndex += 1
+        return s
 
+    @timing
+    def joinPool(self):
+        while self.mpPool:
+            self.logger.verboseLog("wait pool.. sz: %d" % len(self.mpPool))
+            self.mpWaitOne()
 
-	def makeTmp(self, where: str) -> bool:
-		if self.tmpFolder:
-			self.cleanTmp()
-			if not where:
-				where = "."
-		self.tmpFolder = "%s/.dry%s_%s" % (where, self.seed, self.getsubseed())
-		self.logger.verboseLog("try to create tmp %s" % self.tmpFolder)
-		try:
-			os.makedirs(self.tmpFolder, exist_ok=True)
-			fssync()
-			return True
-		except Exception as e:
-			self.logger.logError("cannot create tmp folder %s (%s)" % (self.tmpFolder, str(e)))
-			traceback.print_tb(e.__traceback__)
-			self.tmpFolder = ""
-			return False
-
-	def cleanTmp(self):
-		if self.tmpFolder:
-			try:
-				self.logger.verboseLog("try to remove tmp folder " + self.tmpFolder)
-				shutil.rmtree(self.tmpFolder)
-				self.logger.verboseLog("try to remove tmp folder %s - DONE" % self.tmpFolder)
-			except OSError as e:
-				self.logger.logError("Error: %s : %s" % (self.tmpFolder, e.strerror))
-				traceback.print_tb(e.__traceback__)
-			self.tmpFolder = ""
-
-	def isArchive(self, path):
-		if not os.path.isfile(path):
-			return False
-		if PurePath(path).suffix.lower() in self.archiveExclusions:
-			return False
-		try:
-			patoolib.get_archive_format(path)
-			return True
-		except:
-			return False
-
-	def archiveFilesCount(self, path) -> int:
-		if not os.path.isfile(path) or not self.isArchive(path):
-			return 0
-		if PurePath(path).suffix.lower() == ".rar":
-			## rar cannot be listed
-			return 0
-		list = patoolib.list_archive(path, verbosity = self.logger.isVerbose() ,program = None,interactive = False)
-		if list:
-			return len(list)
-		return 0
-
-	def readArchive(self, path: str)-> bool:
-		if not os.path.isfile(path):
-			self.logger.logError("%s is not a file" % path)
-			return False
-		if not self.isArchive(path):
-			self.logger.logError("%s is not an archive" % path)
-			return False
-		tmprc = self.makeTmp(self.tmpBase)
-		if not self.tmpFolder or not tmprc:
-			self.logger.logError("cannot make a tmp folder")
-			return False
-
-		try:
-			self.currentArchive = path
-			self.logger.verboseLog("extract %s to %s" % (path, self.tmpFolder))
-			patoolib.extract_archive(path, outdir=self.tmpFolder)
-			self.logger.verboseLog("extract %s to %s - DONE" % (path, self.tmpFolder))
-		except Exception as e:
-			self.logger.logError("extracting failed" + str(e))
-			traceback.print_tb(e.__traceback__)
-			self.cleanTmp()
-			self.currentArchive = ""
-			return False
-
-		self.readDir(self.tmpFolder, path)
-		self.cleanTmp()
-		self.currentArchive = ""
-		return True
-	
-	def updateProgress(self, msg: str):
-		self.logger.progressOutputLine[3] = msg
-	
-	@timing
-	def calc(self, fname: str) -> str:
-		self.updateProgress("")
-		hexdigest = hasher.hashFile(fname, self.updateProgress)
-		self.updateProgress("")
-		return hexdigest
-
-	def compareFiles(self, path1: str, path2: str) -> bool:
-		self.logger.log("compare " + path1 + " -> " + path2)
-		if not os.path.isfile(path1) or not os.path.isfile(path2):
-			raise Exception('compareFiles', 'not a file')
-		if path1 == path2:
-			return True
-		if os.path.getsize(path1) != os.path.getsize(path2):
-			self.logger.log("different sizes")
-			return False
-		f1 = open(path1, 'rb')
-		f2 = open(path2, 'rb')
-		chunkIndex = 0
-		chunk1 = f1.read(self.comparatorBlockSize)
-		chunk2 = f2.read(self.comparatorBlockSize)
-		while chunk1 and chunk2:
-			if chunk1 != chunk2:
-				self.logger.log("different chunk[" + str(chunkIndex) + "]")
-				f1.close
-				f2.close
-				return False
-			chunkIndex += 1
-			chunk1 = f1.read(self.comparatorBlockSize)
-			chunk2 = f2.read(self.comparatorBlockSize)
-		return True
-	@staticmethod
-	def timeOffset(initialTime: datetime.datetime):
-		now = datetime.datetime.now()
-		diff = (now - initialTime) 
-		return diff.microseconds
-
-	@staticmethod
-	def asyncReadBody(path: str, pgSettngs, q, printableFileName, initialTime: datetime.datetime):
-		dbEngine = DBEngine.PGEngine()
-		dbEngine.open(pgSettngs)
-		fileSize = 0
-		e_msg = ""
-		try:
-			before = datetime.datetime.now()
-			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "process %s" % printableFileName)
-			hashStr = hasher.hashFile(path, None)
-			fileSize = os.path.getsize(path)
-			dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
-			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "DONE %s in %s" % (printableFileName, (datetime.datetime.now() - before)))
-		except KeyboardInterrupt:
-			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Error, "on KeyboardInterrupt")
-			
-		except Exception as e:
-			tb = traceback.format_exc()
-			e_msg = "cannot read file %s  exception: %s, tb: %s" % (path, str(e), str(tb))
-			q.put( (printableFileName, 0, e_msg) )
-			dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Error, e_msg)
-			print("ERROR! ", (printableFileName, 0, e_msg))
-			return
-		q.put( (printableFileName, fileSize, e_msg) )
-		dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "exit %s" % printableFileName)
-		
-
-	def closeLastSession(self):
-		if not self.pgPath.filled():
-			raise ValueError("invalid pgconfig")
-		with output(output_type="list", initial_len=self.logger.progressPanelLinesCount, interval = 0) as self.logger.progressOutputLine:
-			self.dbEngine = DBEngine.PGEngine()
-			self.dbEngine.open(self.pgPath)
-			lastSession = self.dbEngine.lastSession()
-			if not lastSession:
-				print("uncompleted sessions not found")
-				return
-			print("close session %d" % lastSession)
-			DBEngine.PGEngine.SessionId = lastSession
-			self.closeSession()
+    def mpWaitOne(self):
+        if self.mpPool:
+            p = self.mpPool.pop(0)
+            p.join()
+            printableFileName, fileSize, err_msg = self.mpqueue.get()
+            p.terminate()
+            del p
+            self.logger.stats.filesCount += 1
+            self.logger.stats.filesSize += fileSize
+            self.logger.printIndexProgress(printableFileName)
+            self.logger.verboseLog("joined p_sz:%d c:%d sz:%d p:%s" % (len(self.mpPool), self.logger.stats.filesCount, self.logger.stats.filesSize, printableFileName) )
+            gc.collect()
 
 
-	def asyncRead(self, path: str, fnamePrefix = ""):
-		printableFileName = path
-		if fnamePrefix and fnamePrefix != ".":
-			printableFileName = "%s:/%s" % (fnamePrefix.replace("//",'/'), path.replace(self.tmpFolder,'').replace("//",'/'))
-		if not self.pgPath.filled():
-			raise ValueError("invalid pgconfig")
-		while len(self.mpPool) >= self.mpPoolMaxSize:
-			##print("pool is closed! wait")
-			self.mpWaitOne()
-		p = Process(target=FolderProcessor.asyncReadBody, args=(path, self.pgPath, self.mpqueue, printableFileName, self.initialTime))
-		p.start()
-		self.mpPool.append(p)
+    def makeTmp(self, where: str) -> bool:
+        if self.tmpFolder:
+            self.cleanTmp()
+            if not where:
+                where = "."
+        self.tmpFolder = "%s/.dry%s_%s" % (where, self.seed, self.getsubseed())
+        self.logger.verboseLog("try to create tmp %s" % self.tmpFolder)
+        try:
+            os.makedirs(self.tmpFolder, exist_ok=True)
+            fssync()
+            return True
+        except Exception as e:
+            self.logger.logError("cannot create tmp folder %s (%s)" % (self.tmpFolder, str(e)))
+            traceback.print_tb(e.__traceback__)
+            self.tmpFolder = ""
+            return False
+
+    def cleanTmp(self):
+        if self.tmpFolder:
+            try:
+                self.logger.verboseLog("try to remove tmp folder " + self.tmpFolder)
+                shutil.rmtree(self.tmpFolder)
+                self.logger.verboseLog("try to remove tmp folder %s - DONE" % self.tmpFolder)
+            except OSError as e:
+                self.logger.logError("Error: %s : %s" % (self.tmpFolder, e.strerror))
+                traceback.print_tb(e.__traceback__)
+            self.tmpFolder = ""
+
+    def isArchive(self, path):
+        if not os.path.isfile(path):
+            return False
+        if PurePath(path).suffix.lower() in self.archiveExclusions:
+            return False
+        try:
+            patoolib.get_archive_format(path)
+            return True
+        except:
+            return False
+
+    def archiveFilesCount(self, path) -> int:
+        if not os.path.isfile(path) or not self.isArchive(path):
+            return 0
+        if PurePath(path).suffix.lower() == ".rar":
+            ## rar cannot be listed
+            return 0
+        list = patoolib.list_archive(path, verbosity = self.logger.isVerbose() ,program = None,interactive = False)
+        if list:
+            return len(list)
+        return 0
+
+    def readArchive(self, path: str)-> bool:
+        if not os.path.isfile(path):
+            self.logger.logError("%s is not a file" % path)
+            return False
+        if not self.isArchive(path):
+            self.logger.logError("%s is not an archive" % path)
+            return False
+        tmprc = self.makeTmp(self.tmpBase)
+        if not self.tmpFolder or not tmprc:
+            self.logger.logError("cannot make a tmp folder")
+            return False
+
+        try:
+            self.currentArchive = path
+            self.logger.verboseLog("extract %s to %s" % (path, self.tmpFolder))
+            patoolib.extract_archive(path, outdir=self.tmpFolder)
+            self.logger.verboseLog("extract %s to %s - DONE" % (path, self.tmpFolder))
+        except Exception as e:
+            self.logger.logError("extracting failed" + str(e))
+            traceback.print_tb(e.__traceback__)
+            self.cleanTmp()
+            self.currentArchive = ""
+            return False
+
+        self.readDir(self.tmpFolder, path)
+        self.cleanTmp()
+        self.currentArchive = ""
+        return True
+
+    def updateProgress(self, msg: str):
+        self.logger.progressOutputLine[3] = msg
+
+    @timing
+    def calc(self, fname: str) -> str:
+        self.updateProgress("")
+        hexdigest = hasher.hashFile(fname, self.updateProgress)
+        self.updateProgress("")
+        return hexdigest
+
+    def compareFiles(self, path1: str, path2: str) -> bool:
+        self.logger.log("compare " + path1 + " -> " + path2)
+        if not os.path.isfile(path1) or not os.path.isfile(path2):
+            raise Exception('compareFiles', 'not a file')
+        if path1 == path2:
+            return True
+        if os.path.getsize(path1) != os.path.getsize(path2):
+            self.logger.log("different sizes")
+            return False
+        f1 = open(path1, 'rb')
+        f2 = open(path2, 'rb')
+        chunkIndex = 0
+        chunk1 = f1.read(self.comparatorBlockSize)
+        chunk2 = f2.read(self.comparatorBlockSize)
+        while chunk1 and chunk2:
+            if chunk1 != chunk2:
+                self.logger.log("different chunk[" + str(chunkIndex) + "]")
+                f1.close
+                f2.close
+                return False
+            chunkIndex += 1
+            chunk1 = f1.read(self.comparatorBlockSize)
+            chunk2 = f2.read(self.comparatorBlockSize)
+        return True
+    @staticmethod
+    def timeOffset(initialTime: datetime.datetime):
+        now = datetime.datetime.now()
+        diff = (now - initialTime)
+        return diff.microseconds
+
+    @staticmethod
+    def asyncReadBody(path: str, pgSettngs, q, printableFileName, initialTime: datetime.datetime):
+        dbEngine = DBEngine.PGEngine()
+        dbEngine.open(pgSettngs)
+        fileSize = 0
+        e_msg = ""
+        try:
+            before = datetime.datetime.now()
+            dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "process %s" % printableFileName)
+            hashStr = hasher.hashFile(path, None)
+            fileSize = os.path.getsize(path)
+            dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
+            dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "DONE %s in %s" % (printableFileName, (datetime.datetime.now() - before)))
+        except KeyboardInterrupt:
+            dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Error, "on KeyboardInterrupt")
+
+        except Exception as e:
+            tb = traceback.format_exc()
+            e_msg = "cannot read file %s  exception: %s, tb: %s" % (path, str(e), str(tb))
+            q.put( (printableFileName, 0, e_msg) )
+            dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Error, e_msg)
+            print("ERROR! ", (printableFileName, 0, e_msg))
+            return
+        q.put( (printableFileName, fileSize, e_msg) )
+        dbEngine.writeLog(FolderProcessor.timeOffset(initialTime), DBEngine.DbLogLevel.Debug, "exit %s" % printableFileName)
+
+
+    def closeLastSession(self):
+        if not self.pgPath.filled():
+            raise ValueError("invalid pgconfig")
+        with output(output_type="list", initial_len=self.logger.progressPanelLinesCount, interval = 0) as self.logger.progressOutputLine:
+            self.dbEngine = DBEngine.PGEngine()
+            self.dbEngine.open(self.pgPath)
+            lastSession = self.dbEngine.lastSession()
+            if not lastSession:
+                print("uncompleted sessions not found")
+                return
+            print("close session %d" % lastSession)
+            DBEngine.PGEngine.SessionId = lastSession
+            self.closeSession()
+
+
+    def asyncRead(self, path: str, fnamePrefix = ""):
+        printableFileName = path
+        if fnamePrefix and fnamePrefix != ".":
+            printableFileName = "%s:/%s" % (fnamePrefix.replace("//",'/'), path.replace(self.tmpFolder,'').replace("//",'/'))
+        if not self.pgPath.filled():
+            raise ValueError("invalid pgconfig")
+        while len(self.mpPool) >= self.mpPoolMaxSize:
+            ##print("pool is closed! wait")
+            self.mpWaitOne()
+        p = Process(target=FolderProcessor.asyncReadBody, args=(path, self.pgPath, self.mpqueue, printableFileName, self.initialTime))
+        p.start()
+        self.mpPool.append(p)
 
 
 
-	def readFile(self, path: str, fnamePrefix = ""):
-		if self.mp:
-			self.asyncRead(path, fnamePrefix)
-			return
+    def readFile(self, path: str, fnamePrefix = ""):
+        if self.mp:
+            self.asyncRead(path, fnamePrefix)
+            return
 
-		printableFileName = path
-		if fnamePrefix and fnamePrefix != ".":
-			printableFileName = "%s:/%s" % (fnamePrefix.replace("//",'/'), path.replace(self.tmpFolder,'').replace("//",'/'))
+        printableFileName = path
+        if fnamePrefix and fnamePrefix != ".":
+            printableFileName = "%s:/%s" % (fnamePrefix.replace("//",'/'), path.replace(self.tmpFolder,'').replace("//",'/'))
 
-		self.logger.verboseLog("read file %s" % printableFileName)
-		try:
-			hashStr = self.calc(path)
-			self.logger.log("prefix: %s, printable name: %s, path: %s [%s]" % (fnamePrefix, printableFileName, path, hashStr))
-			fileSize = os.path.getsize(path)
-		except KeyboardInterrupt:
-			self.logger.log("Interrupted")
-			sys.exit(-1)
-		except Exception as e:
-			self.logger.logError("cannot read file %s  exception: %s" % (printableFileName, str(e)))
-			traceback.print_tb(e.__traceback__)
-			return
+        self.logger.verboseLog("read file %s" % printableFileName)
+        try:
+            hashStr = self.calc(path)
+            self.logger.log("prefix: %s, printable name: %s, path: %s [%s]" % (fnamePrefix, printableFileName, path, hashStr))
+            fileSize = os.path.getsize(path)
+        except KeyboardInterrupt:
+            self.logger.log("Interrupted")
+            sys.exit(-1)
+        except Exception as e:
+            self.logger.logError("cannot read file %s  exception: %s" % (printableFileName, str(e)))
+            traceback.print_tb(e.__traceback__)
+            return
 
-		self.logger.stats.filesCount += 1
-		self.logger.stats.filesSize += fileSize
-		self.logger.printIndexProgress(printableFileName)
-		self.logger.verboseLog("hash: %s size: %d" % (hashStr, fileSize))
-		self.dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
+        self.logger.stats.filesCount += 1
+        self.logger.stats.filesSize += fileSize
+        self.logger.printIndexProgress(printableFileName)
+        self.logger.verboseLog("hash: %s size: %d" % (hashStr, fileSize))
+        self.dbEngine.writeFileInfo(printableFileName, hashStr, fileSize)
 
-	def needProcessFileAsArchive(self, path) -> bool:
-		self.logger.verboseLog("check file " + path)
-		if self.noarch:
-			self.logger.verboseLog("no archive mode")
-			return False
-		if not self.isArchive(path):
-			self.logger.verboseLog("not an archive")
-			return False
-		if (self.archlimit > 0) and (os.path.getsize(path) > self.archlimit):
-			self.logger.verboseLog("archive is too large. ignore")
-			return False
-		if self.tmpFolder:
-			self.logger.verboseLog("already process an archive in %s. no recursive execution" % self.tmpFolder)
-			self.logger.verboseLog("current archive is %s" % self.currentArchive)
-			return False
-		self.logger.verboseLog("process %s as archove" % path)
-		return True
+    def needProcessFileAsArchive(self, path) -> bool:
+        self.logger.verboseLog("check file " + path)
+        if self.noarch:
+            self.logger.verboseLog("no archive mode")
+            return False
+        if not self.isArchive(path):
+            self.logger.verboseLog("not an archive")
+            return False
+        if (self.archlimit > 0) and (os.path.getsize(path) > self.archlimit):
+            self.logger.verboseLog("archive is too large. ignore")
+            return False
+        if self.tmpFolder:
+            self.logger.verboseLog("already process an archive in %s. no recursive execution" % self.tmpFolder)
+            self.logger.verboseLog("current archive is %s" % self.currentArchive)
+            return False
+        self.logger.verboseLog("process %s as archove" % path)
+        return True
 
-	@timing
-	def readDir(self, path: str, fnamePrefix = ""):
-		if not fnamePrefix:
-			fnamePrefix = path
-		try:
-			if os.path.islink(path):
-				self.logger.verboseLog("ignore link " + path)
-			elif self.needProcessFileAsArchive(path):
-				self.readFile(path, fnamePrefix)
-				self.readArchive(path)
-			elif os.path.isfile(path):
-				self.readFile(path, fnamePrefix)
-			elif os.path.isdir(path):
-				self.logger.verboseLog("read folder " + path)
-				for entry in os.listdir(path):
-					self.readDir(path + "/" + entry, fnamePrefix)
-			else:
-				self.logger.logError("ignore it")
-		except KeyboardInterrupt:
-			self.logger.log("Interrupted")
-			exit(-1)
-		except Exception as e:
-			self.logger.logError("cannot process folder %s. skip. exception: %s" % (path, str(e)))
-			traceback.print_tb(e.__traceback__)
+    @timing
+    def readDir(self, path: str, fnamePrefix = ""):
+        if not fnamePrefix:
+            fnamePrefix = path
+        try:
+            if os.path.islink(path):
+                self.logger.verboseLog("ignore link " + path)
+            elif self.needProcessFileAsArchive(path):
+                self.readFile(path, fnamePrefix)
+                self.readArchive(path)
+            elif os.path.isfile(path):
+                self.readFile(path, fnamePrefix)
+            elif os.path.isdir(path):
+                self.logger.verboseLog("read folder " + path)
+                for entry in os.listdir(path):
+                    self.readDir(path + "/" + entry, fnamePrefix)
+            else:
+                self.logger.logError("ignore it")
+        except KeyboardInterrupt:
+            self.logger.log("Interrupted")
+            exit(-1)
+        except Exception as e:
+            self.logger.logError("cannot process folder %s. skip. exception: %s" % (path, str(e)))
+            traceback.print_tb(e.__traceback__)
 
-	@timing
-	def groupRecords(self):
-		if not self.logger.progressOutputLine:
-			raise AssertionError ("no progressOutputLine in printIndexProgress!")
-		groups = {}
-		nuHashes = self.dbEngine.notUniqueHashes()
-		i = 1
-		for hash in nuHashes:
-			h_start = datetime.datetime.now()
-			i += 1
-			self.logger.verboseLog(hash + " :: " + str(self.dbEngine.filesByHash(hash)))
-			self.logger.hashIndex += 1
-			self.logger.printReduceProgress(hash, len(nuHashes))
-			files = self.dbEngine.filesByHash(hash)
-			if len(files) <= 1:
-				continue
-			groups[hash] = {}
-			groups[hash]["path"] = [i[0] for i in files]
-			groups[hash]["size"] = files[0][1]
-			for filename in groups[hash]["path"]:
-				self.dbEngine.writeGroupRecord(hash, filename, groups[hash]["size"])
-			hps = datetime.timedelta(seconds=1) / (datetime.datetime.now() - h_start)
-			stat_msg = "process hash (%d / %d) %s,  %.2f hash/s" % (i, len(nuHashes), hash, hps)
-			self.dbEngine.writeLog(FolderProcessor.timeOffset(self.initialTime), DBEngine.DbLogLevel.Debug, stat_msg)
-			self.logger.progressOutputLine[1] = stat_msg
-		return groups
+    @timing
+    def groupRecords(self):
+        if not self.logger.progressOutputLine:
+            raise AssertionError ("no progressOutputLine in printIndexProgress!")
+        groups = {}
+        nuHashes = self.dbEngine.notUniqueHashes()
+        i = 1
+        for hash in nuHashes:
+            h_start = datetime.datetime.now()
+            i += 1
+            self.logger.verboseLog(hash + " :: " + str(self.dbEngine.filesByHash(hash)))
+            self.logger.hashIndex += 1
+            self.logger.printReduceProgress(hash, len(nuHashes))
+            files = self.dbEngine.filesByHash(hash)
+            if len(files) <= 1:
+                continue
+            groups[hash] = {}
+            groups[hash]["path"] = [i[0] for i in files]
+            groups[hash]["size"] = files[0][1]
+            for filename in groups[hash]["path"]:
+                self.dbEngine.writeGroupRecord(hash, filename, groups[hash]["size"])
+            hps = datetime.timedelta(seconds=1) / (datetime.datetime.now() - h_start)
+            stat_msg = "process hash (%d / %d) %s,  %.2f hash/s" % (i, len(nuHashes), hash, hps)
+            self.dbEngine.writeLog(FolderProcessor.timeOffset(self.initialTime), DBEngine.DbLogLevel.Debug, stat_msg)
+            self.logger.progressOutputLine[1] = stat_msg
+        return groups
 
-	@timing
-	def scandir(self, path: str):
-		try:
-			if os.path.islink(path):
-				return
-			if os.path.isdir(path):
-				for entry in os.listdir(path):
-					self.scandir(path + "/" + entry)
-			elif self.isArchive(path):
-				self.logger.stats.totalSize += os.path.getsize(path)
-				self.logger.stats.totalCount += (self.archiveFilesCount(path) + 1)
-			else:
-				self.logger.stats.totalSize += os.path.getsize(path)
-				self.logger.stats.totalCount += 1
+    @timing
+    def scandir(self, path: str):
+        try:
+            if os.path.islink(path):
+                return
+            if os.path.isdir(path):
+                for entry in os.listdir(path):
+                    self.scandir(path + "/" + entry)
+            elif self.isArchive(path):
+                self.logger.stats.totalSize += os.path.getsize(path)
+                self.logger.stats.totalCount += (self.archiveFilesCount(path) + 1)
+            else:
+                self.logger.stats.totalSize += os.path.getsize(path)
+                self.logger.stats.totalCount += 1
 
-		except KeyboardInterrupt:
-			exit(-1)
-		except Exception as e:
-			self.logger.logError("cannot scan %s. error: %s" % (path, str(e)))
-			traceback.print_tb(e.__traceback__)
+        except KeyboardInterrupt:
+            exit(-1)
+        except Exception as e:
+            self.logger.logError("cannot scan %s. error: %s" % (path, str(e)))
+            traceback.print_tb(e.__traceback__)
 
-	@timing
-	def prescan(self):
-		if not self.inPath:
-			self.logger.logFatal("no input path")
-		self.scandir(self.inPath)
-		self.logger.verboseLog("prescan stage: done. found %d files (%s)" % (self.logger.stats.totalCount, common.StrUtils.convert_bytes(self.logger.stats.totalSize)))
+    @timing
+    def prescan(self):
+        if not self.inPath:
+            self.logger.logFatal("no input path")
+        self.scandir(self.inPath)
+        self.logger.verboseLog("prescan stage: done. found %d files (%s)" % (self.logger.stats.totalCount, common.StrUtils.convert_bytes(self.logger.stats.totalSize)))
 
-	@timing
-	def exec(self):
-		with output(output_type="list", initial_len=self.logger.progressPanelLinesCount, interval = 0) as self.logger.progressOutputLine:
-			if not self.logger.progressOutputLine:
-				self.logger.logFatal("exec: outLine is not setted ")
-			if self.storageType == DBEngine.DBEngine.StorageSqlite:
-				self.dbEngine.open(self.dbPath)
-			elif self.storageType == DBEngine.DBEngine.StoragePG:
-				if not self.pgPath.filled():
-					raise ValueError("invalid pgconfig")
-				self.dbEngine.open(self.pgPath)
+    @timing
+    def exec(self):
+        with output(output_type="list", initial_len=self.logger.progressPanelLinesCount, interval = 0) as self.logger.progressOutputLine:
+            if not self.logger.progressOutputLine:
+                self.logger.logFatal("exec: outLine is not setted ")
+            if self.storageType == DBEngine.DBEngine.StorageSqlite:
+                self.dbEngine.open(self.dbPath)
+            elif self.storageType == DBEngine.DBEngine.StoragePG:
+                if not self.pgPath.filled():
+                    raise ValueError("invalid pgconfig")
+                self.dbEngine.open(self.pgPath)
 
-			self.logger.progressOutputLine[0] = "----[   indexing stage  ]----"
-			self.readDir(self.inPath)
-			self.joinPool()
-			self.logger.verboseLog("indexing stage: done")
-			fssync()
-			self.closeSession()
-			
-	
-	def closeSession(self):		
-		self.logger.progressOutputLine[0] = "----[ comparation stage ]----"
-		groups = self.groupRecords()
-		self.logger.verboseLog("comparation stage: done")
-		groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
-		if self.fmt == Formats.json:
-			outFile = open(self.target, 'w')
-			outFile.write(groups_json)
-			outFile.close()
-		elif self.fmt == Formats.stdout:
-			print(groups_json)
-		elif self.fmt == Formats.html:
-			generator = HTMLGenerator.HTMLGenerator()
-			htmlText = generator.generate(groups, self.inPath)
-			htmlFile = open(self.target, 'w')
-			htmlFile.write(htmlText)
-			htmlFile.close()
-		else:
-			self.logger.log("database saved to " + self.dbPath)
-		self.logger.progressOutputLine[0] = "----[ done ]----"
-		self.dbEngine.cleanup()
-		self.dbEngine.close()
+            self.logger.progressOutputLine[0] = "----[   indexing stage  ]----"
+            self.readDir(self.inPath)
+            self.joinPool()
+            self.logger.verboseLog("indexing stage: done")
+            fssync()
+            self.closeSession()
+
+
+    def closeSession(self):
+        self.logger.progressOutputLine[0] = "----[ comparation stage ]----"
+        groups = self.groupRecords()
+        self.logger.verboseLog("comparation stage: done")
+        groups_json = json.dumps(groups, sort_keys = True, indent = 2, separators = (',', ': '))
+        if self.fmt == Formats.json:
+            outFile = open(self.target, 'w')
+            outFile.write(groups_json)
+            outFile.close()
+        elif self.fmt == Formats.stdout:
+            print(groups_json)
+        elif self.fmt == Formats.html:
+            generator = HTMLGenerator.HTMLGenerator()
+            htmlText = generator.generate(groups, self.inPath)
+            htmlFile = open(self.target, 'w')
+            htmlFile.write(htmlText)
+            htmlFile.close()
+        else:
+            self.logger.log("database saved to " + self.dbPath)
+        self.logger.progressOutputLine[0] = "----[ done ]----"
+        self.dbEngine.cleanup()
+        self.dbEngine.close()
 
 def main() -> int :
-	parser = argparse.ArgumentParser(add_help=True, description="Duplicates detector [Don't repeat yourself!]")
-	parser.add_argument("-o", "--target", "--out", action="store", default=".", help="output target (default .)")
-	parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|html|sqlite(default)")
-	parser.add_argument("-v", "--verbose", action="store_true", help="print all messages")
-	parser.add_argument("-q", "--quiet", action="store_true", help="no output")
-	parser.add_argument("-c", "--compare", action="store_true", help="content based comparation (hash based is default)")
-	parser.add_argument("--tmp", action="store", help="tmp folder. default: current. WARNING! script will extract archives to this folder")
-	parser.add_argument("--archlimit", type=int, action="store", default="0", help="don't open archives that large than this limit (in Mb). 0 - no limit (default)")
-	parser.add_argument("--noarchive", action="store_true", help="don't open archives, process as usual files")
-	parser.add_argument("--progress", action="store_true", help="print progress line")
-	parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
-	parser.add_argument("--mp", action="store_true", help="parallel processing (%d processes)" % Constants.MP_scale)
-	parser.add_argument("--close_latest", action="store_true", help="close last ioncompleted session")
+    parser = argparse.ArgumentParser(add_help=True, description="Duplicates detector [Don't repeat yourself!]")
+    parser.add_argument("-o", "--target", "--out", action="store", default=".", help="output target (default .)")
+    parser.add_argument("-f", "--format", "--fmt", action="store", default=Formats.sqlite.name, help="output format <json|stdout|html|sqlite(default)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="print all messages")
+    parser.add_argument("-q", "--quiet", action="store_true", help="no output")
+    parser.add_argument("-c", "--compare", action="store_true", help="content based comparation (hash based is default)")
+    parser.add_argument("--tmp", action="store", help="tmp folder. default: current. WARNING! script will extract archives to this folder")
+    parser.add_argument("--archlimit", type=int, action="store", default="0", help="don't open archives that large than this limit (in Mb). 0 - no limit (default)")
+    parser.add_argument("--noarchive", action="store_true", help="don't open archives, process as usual files")
+    parser.add_argument("--progress", action="store_true", help="print progress line")
+    parser.add_argument("--noprescan", action="store_true", help="skip prescan step (calculate summary counts for progress displayed.) it can take a long time on large folders")
+    parser.add_argument("--mp", action="store_true", help="parallel processing (%d processes)" % Constants.MP_scale)
+    parser.add_argument("--close_latest", action="store_true", help="close last ioncompleted session")
 
-	parser.add_argument("path", help="folder to scan")
+    parser.add_argument("path", help="folder to scan")
 
-	args = parser.parse_args()
-	seed = str(mstime())
+    args = parser.parse_args()
+    seed = str(mstime())
 
-	soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-	resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
-	DBEngine.PGEngine.makeNodeKeys(1, mstime())
-	loggerMode = LoggerMode.verboseMode
-	if args.verbose and args.progress:
-		loggerMode = LoggerMode.progressVerbose
-	elif args.progress:
-		loggerMode = LoggerMode.progressAndErrors
-	elif args.verbose:
-		loggerMode = LoggerMode.verboseMode
-	else:
-		loggerMode = LoggerMode.quietMode
-	logger = Logger(loggerMode, seed)
-	TimingUtil.CTimingUtil.timingLoggerWrapper = logger
-	executor = None
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+    DBEngine.PGEngine.makeNodeKeys(1, mstime())
+    loggerMode = LoggerMode.verboseMode
+    if args.verbose and args.progress:
+        loggerMode = LoggerMode.progressVerbose
+    elif args.progress:
+        loggerMode = LoggerMode.progressAndErrors
+    elif args.verbose:
+        loggerMode = LoggerMode.verboseMode
+    else:
+        loggerMode = LoggerMode.quietMode
+    logger = Logger(loggerMode, seed)
+    TimingUtil.CTimingUtil.timingLoggerWrapper = logger
+    executor = None
 
-	if args.close_latest:
-		executor = FolderProcessor(logger, args, seed)
-		executor.closeLastSession()
-		return 0
+    if args.close_latest:
+        executor = FolderProcessor(logger, args, seed)
+        executor.closeLastSession()
+        return 0
 
-	try:
-		executor = FolderProcessor(logger, args, seed)
-		if not args.noprescan:
-			executor.prescan()
-		executor.exec()
-	except ParamsError as e:
-		logger.logError(str(e))
-		parser.print_help(sys.stderr)
-		return -1
-	return 0
+    try:
+        executor = FolderProcessor(logger, args, seed)
+        if not args.noprescan:
+            executor.prescan()
+        executor.exec()
+    except ParamsError as e:
+        logger.logError(str(e))
+        parser.print_help(sys.stderr)
+        return -1
+    return 0
 
 if __name__ == '__main__':
-		sys.exit(main())
+    sys.exit(main())

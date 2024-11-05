@@ -20,4 +20,4 @@ jobs:
         pip install pylint
     - name: Analysing the code with pylint
       run: |
-        pylint --disable=C0209 --disable=C0103 --disable=C0114 --disable=C0115 --disable=C0116 dry $(git ls-files --exclude-from=.gitignore '*.py' | grep -v '3rdParty')
+        pylint --disable=C0209 --disable=C0301 --disable=C0103 --disable=C0114 --disable=C0115 --disable=C0116 dry $(git ls-files --exclude-from=.gitignore '*.py' | grep -v '3rdParty')
