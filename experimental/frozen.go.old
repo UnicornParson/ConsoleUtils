@@ -1,0 +1,138 @@
+package main
+
+import (
+	"fmt"
+	"image/color"
+	"log"
+	"math"
+	"os"
+	"time"
+
+	"github.com/fogleman/gg"
+)
+
+// FPS struct to hold FPS value and timestamp
+type FPS struct {
+	Fps float64
+	T   time.Time
+}
+
+// Rmse function to normalize RMSE value
+func Rmse(rmse float64) float64 {
+	return math.Sqrt(math.Abs(rmse)) / 255.0
+}
+
+// ProcessFrame processes a frame of video
+func ProcessFrame(diff1 [][][]uint8, gray [][]color.RGBA, w int, h int) ([][]color.RGBA, []FPS, uint32, float64) {
+	marker := color.RGBA{31, 31, 229, 255}
+	palette := []color.RGBA{
+		{31, 31, 229, 255},
+		{52, 161, 242, 255},
+		{211, 227, 247, 255},
+		{68, 219, 187, 255},
+		{27, 206, 68, 255},
+	}
+	counts := make([]FPS, 50)
+	total := uint64(w * h)
+	summ := uint64(0)
+
+	for t := range counts {
+		count := uint32(0)
+		mi := uint32(t / 10)
+		marker = palette[mi]
+
+		for y := range gray {
+			for x := range diff1[y] {
+				for c := range diff1[y][x] {
+					if diff1[y][x][c] > uint8(t) {
+						summ += uint64(diff1[y][x][c]) * uint64(diff1[y][x][c])
+						gray[y][x] = marker
+						count++
+					}
+					break
+				}
+			}
+		}
+		counts[t] = FPS{Fps: float64(t), T: time.Now()}
+	}
+
+	rmse := float64(summ) / float64(total)
+	return gray, counts, uint32(total), Rmse(rmse)
+}
+
+func DrawHeader(target []gg.Context, w int, h int, counts []FPS, total uint32, rmse float64) []gg.Context {
+	for i := 0; i < len(target); i++ {
+		if i+h > len(target)-1 {
+			break
+		}
+
+		target[i] = *gg.NewContext(w, h)
+		target[i].SetRGB(31/255.0, 31/255.0, 229/255.0)
+		target[i].Clear()
+
+		font := "sans-serif" // Use a system font name
+		target[i].LoadFontFace(font, 24)
+		text := ""
+		for _, c := range counts {
+			t := uint32(c.Fps)
+			prc := int(float64(c.T.Unix()) / float64(total) * 100)
+			text += fmt.Sprintf("[%d_%d%%]", t, prc)
+		}
+
+		target[i].SetRGB(1, 1, 1)
+		target[i].DrawStringAnchored(text, 3, float64(h-30), 0, 0)
+	}
+	return target
+}
+
+func DrawFooter(target []gg.Context, y int, w int, h int, rmse float64) []gg.Context {
+	for i := 0; i < len(target); i++ {
+		if i+h > len(target)-1 {
+			break
+		}
+
+		target[i] = *gg.NewContext(w, h)
+		target[i].SetRGB(rmse, rmse, rmse)
+		target[i].Clear()
+	}
+	return target
+}
+
+func ProcessVideo(inPath, outPath string) (bool, error) {
+	// Placeholder for actual video processing logic
+	return true, nil
+}
+
+func main() {
+	parser := os.Args[1:]
+
+	for _, arg := range parser {
+		switch arg {
+		case "--help":
+			fmt.Println("frozen frames detector")
+		default:
+			if len(parser) == 2 {
+				inPath := "./" + arg
+				outPath := "./" + parser[1]
+				rc, err := ProcessVideo(inPath, outPath)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				if rc {
+					return
+				}
+			} else {
+				inPath := "./" + arg
+				rc, err := ProcessVideo(inPath, inPath+"_out")
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				if rc {
+					return
+				}
+			}
+		}
+	}
+}
