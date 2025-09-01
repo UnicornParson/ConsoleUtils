@@ -1,0 +1,11 @@
+#!/bin/bash
+
+shopt -s dotglob
+
+for file in *; do
+    if [[ -f "$file" ]]; then
+        if file --mime-encoding "$file" | grep -qE "(us-ascii|utf-8|iso-8859-1)"; then
+            cat "$file"
+        fi
+    fi
+done
