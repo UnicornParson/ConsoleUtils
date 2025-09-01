@@ -1,13 +1,13 @@
-package frozen
+package main
 
 import (
-	"flag"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
-	"log"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gocv.io/x/gocv"
@@ -18,22 +18,20 @@ func fpsStart() time.Time {
 }
 
 func fpsUpdate(marker time.Time, count int) (float64, float64, time.Time) {
-	tdelta := time.Since(marker).Seconds()
-	fps := float64(count) / tdelta
-	return fps, tdelta, time.Now()
+	tdelta := time.Since(marker)
+	fps := float64(count) / tdelta.Seconds()
+	return fps, tdelta.Seconds(), time.Now()
 }
 
 func normalizeRmse(rmse float64) float64 {
 	return math.Sqrt(math.Abs(rmse)) / 255.0
 }
 
-func processFrame(gray *gocv.Mat, diff1 *gocv.Mat, w, h int) (*gocv.Mat, []int, int, float64) {
-	marker := color.RGBA{0, 0, 255, 0}
-	palette := []color.RGBA{
-		{31, 31, 229, 0}, {52, 161, 242, 0}, {211, 227, 247, 0},
-		{68, 219, 187, 0}, {27, 206, 68, 0},
+func processFrame(gray *gocv.Mat, diff1 *gocv.Mat, w, h int) (*gocv.Mat, []struct{ T, Count int }, int, float64) {
+	palette := [][]int{
+		{31, 31, 229}, {52, 161, 242}, {211, 227, 247}, {68, 219, 187}, {27, 206, 68},
 	}
-	counts := make([]int, 0)
+	counts := []struct{ T, Count int }{}
 	total := w * h
 	tStep := 5
 	summ := 0.0
@@ -41,120 +39,142 @@ func processFrame(gray *gocv.Mat, diff1 *gocv.Mat, w, h int) (*gocv.Mat, []int, 
 	for t := 0; t < 50; t += tStep {
 		count := 0
 		mi := t / 10
-		marker = palette[mi]
+		marker := palette[mi]
 		for y := 0; y < h; y++ {
 			for x := 0; x < w; x++ {
-				for ch := 0; ch < 3; ch++ {
-					if diff1.GetVecbAt(y, x)[ch] > byte(t) {
-						if t == 0 {
-							summ += float64(diff1.GetVecbAt(y, x)[ch] * diff1.GetVecbAt(y, x)[ch])
-						}
-						gray.SetVecbAt(y, x, marker.RGBA())
-						count++
+				ch := diff1.GetVecbAt(y, x)
+				if ch[0] > uint8(t) || ch[1] > uint8(t) || ch[2] > uint8(t) {
+					if t == 0 {
+						summ += math.Pow(float64(ch[0]), 2) + math.Pow(float64(ch[1]), 2) + math.Pow(float64(ch[2]), 2)
 					}
-					break
+					gray.SetVecbAt(y, x, gocv.Vecb{B: uint8(marker[0]), G: uint8(marker[1]), R: uint8(marker[2])})
+					count++
 				}
 			}
 		}
-		counts = append(counts, count)
+		counts = append(counts, struct{ T, Count int }{t, count})
 	}
+
 	rmse := summ / float64(total)
 	return gray, counts, total, rmse
 }
 
-func drawHeader(target *gocv.Mat, w, h int, counts []int, total int, rmse float64) *gocv.Mat {
-	target.SetTo(color.RGBA{0, 0, 0, 0})
+func drawHeader(target *gocv.Mat, w, h int, counts []struct{ T, Count int }, total int, rmse float64) {
+	gocv.Rectangle(target, image.Rect(0, 0, w, h), color.RGBA{0, 0, 0, 0}, -1)
 	text := ""
 	if total > 0 {
 		for _, c := range counts {
-			t := c / 10
-			prc := int(float64(c) / float64(total) * 100)
-			text += fmt.Sprintf("[%d_%d%%]", t, prc)
+			prc := int(float64(c.Count) / float64(total) * 100)
+			text += fmt.Sprintf("[%d_%d%%]", c.T, prc)
 		}
 	}
-	gocv.PutText(target, text, image.Pt(3, h-3), gocv.FontHersheyPlain, color.RGBA{255, 255, 255, 0}, 1, 8, false)
-	gocv.PutText(target, fmt.Sprintf("RMSE:%f", normalizeRmse(rmse)), image.Pt(3, h/2-3), gocv.FontHersheyPlain, color.RGBA{255, 255, 255, 0}, 1, 8, false)
-	return target
+	gocv.PutText(target, text, image.Pt(3, h-3), gocv.FontHersheyPlain, 1, color.RGBA{255, 255, 255, 255}, 1)
+	gocv.PutText(target, fmt.Sprintf("RMSE:%f", normalizeRmse(rmse)), image.Pt(3, h/2-3), gocv.FontHersheyPlain, 1, color.RGBA{255, 255, 255, 255}, 1)
+}
+
+func drawFooter(target *gocv.Mat, y, w, h int, rmse float64) {
+	gocv.Rectangle(target, image.Rect(0, y, w, y+h), color.RGBA{0, 0, 0, 0}, -1)
+	margin := 3
+	barH := 8
+	barW := w - 2*margin
+	start := image.Pt(margin, y+margin)
+	end := image.Pt(barW+margin, y+margin+barH)
+	inEnd := image.Pt(int(float64(barW)*normalizeRmse(rmse))+margin, y+margin+barH)
+
+	gocv.Rectangle(target, image.Rect(start.X, start.Y, inEnd.X, inEnd.Y), color.RGBA{255, 255, 255, 255}, -1)
+	gocv.Rectangle(target, image.Rect(start.X, start.Y, end.X, end.Y), color.RGBA{255, 255, 255, 255}, 1)
 }
 
 func processVideo(inPath, outPath string) bool {
-	videoin, err := gocv.VideoCaptureFile(inPath)
-	if err != nil {
-		log.Fatalf("Error opening video file: %v", err)
-	}
-	defer videoin.Close()
+	headerHeight := 64
+	footerHeight := 24
 
-	width := int(videoin.Get(gocv.VideoCaptureFrameWidth))
-	height := int(videoin.Get(gocv.VideoCaptureFrameHeight))
-	fps := videoin.Get(gocv.VideoCaptureFPS)
+	video, err := gocv.VideoCaptureFile(inPath)
+	if err != nil {
+		fmt.Printf("Error opening video: %v\n", err)
+		return false
+	}
+	defer video.Close()
+
+	total := int(video.Get(gocv.VideoCaptureFrameCount))
+	w := int(video.Get(gocv.VideoCaptureFrameWidth))
+	h := int(video.Get(gocv.VideoCaptureFrameHeight))
+	fps := video.Get(gocv.VideoCaptureFPS)
 
 	if _, err := os.Stat(outPath); err == nil {
 		os.Remove(outPath)
 	}
 
-	videoout, err := gocv.VideoWriterFile(outPath, "MP4V", fps, width, height+100, true)
+	outHeight := h + headerHeight + footerHeight
+	writer, err := gocv.VideoWriterFile(outPath, "mp4v", fps, w, outHeight, true)
 	if err != nil {
-		log.Fatalf("Error opening video writer: %v", err)
+		fmt.Printf("Error creating writer: %v\n", err)
+		return false
 	}
-	defer videoout.Close()
+	defer writer.Close()
 
+	out := gocv.NewMatWithSize(outHeight, w, gocv.MatTypeCV8UC3)
 	last := gocv.NewMat()
 	defer last.Close()
 
-	out := gocv.NewMatWithSize(height+100, width, gocv.MatTypeCV8UC3)
-	defer out.Close()
-
-	for {
+	fmt.Printf("Processing %d frames...\n", total)
+	for i := 0; i < total; i++ {
 		frame := gocv.NewMat()
-		defer frame.Close()
-		if ok := videoin.Read(&frame); !ok {
+		if ok := video.Read(&frame); !ok {
 			break
 		}
-		if frame.Empty() {
-			continue
-		}
+		defer frame.Close()
 
 		gray := gocv.NewMat()
-		defer gray.Close()
 		gocv.CvtColor(frame, &gray, gocv.ColorBGRToGray)
 		gocv.CvtColor(gray, &gray, gocv.ColorGrayToBGR)
 
-		total := width * height
-		counts := make([]int, 0)
+		var counts []struct{ T, Count int }
+		totalPixels := w * h
 		rmse := 0.0
 
 		if !last.Empty() {
-			diff1 := gocv.NewMat()
-			defer diff1.Close()
-			gocv.AbsDiff(frame, last, &diff1)
-			gray, counts, total, rmse = processFrame(&gray, &diff1, width, height)
+			diff := gocv.NewMat()
+			gocv.AbsDiff(frame, last, &diff)
+			defer diff.Close()
+
+			gray, counts, totalPixels, rmse = processFrame(&gray, &diff, w, h)
 		}
 
-		outRegion := out.Region(image.Rect(0, 50, width, height+50))
-		gray.CopyTo(&outRegion)
-		out = drawHeader(&out, width, 50, counts, total, rmse)
+		region := out.Region(image.Rect(0, headerHeight, w, headerHeight+h))
+		gray.CopyTo(&region)
+		region.Close()
 
-		videoout.Write(out)
+		drawHeader(&out, w, headerHeight, counts, totalPixels, rmse)
+		drawFooter(&out, headerHeight+h, w, footerHeight, rmse)
+
+		writer.Write(out)
 		last = frame.Clone()
 	}
+
 	return true
 }
 
 func main() {
-	inPath := flag.String("inpath", "", "original file")
-	outPath := flag.String("outpath", "", "target file")
-	flag.Parse()
-
-	if *inPath == "" {
-		log.Fatal("no input file")
-	}
-	if *outPath == "" {
-		*outPath = *inPath + ".fdiff.mp4"
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: frozen <input> [output]")
+		os.Exit(1)
 	}
 
-	if processVideo(*inPath, *outPath) {
-		os.Exit(0)
+	inPath := os.Args[1]
+	outPath := "output.mp4"
+	if len(os.Args) >= 3 {
+		outPath = os.Args[2]
 	} else {
-		os.Exit(-1)
+		outPath = filepath.Base(inPath) + ".fdiff.mp4"
+	}
+
+	if _, err := os.Stat(inPath); errors.Is(err, os.ErrNotExist) {
+		fmt.Printf("File not found: %s\n", inPath)
+		os.Exit(1)
+	}
+
+	if ok := processVideo(inPath, outPath); !ok {
+		os.Exit(1)
 	}
 }

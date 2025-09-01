@@ -173,46 +173,49 @@ class ConfigReader:
             self.logger.verboseLog("no %s section in config file" % self.rootTag)
             return
 
+        try:
+            section = self.parser[self.rootTag]
+            self.logger.verboseLog("ini cfg")
 
-        section = self.parser[self.rootTag]
-        self.logger.verboseLog("ini cfg")
+            for s in section:
+                self.logger.verboseLog("%s - %s" % (str(s), section[s]))
 
-        for s in section:
-            self.logger.verboseLog("%s - %s" % (str(s), section[s]))
+            if self.keyExist(self.fmtTag, section):
+                self.fmt = Formats.parse(section[self.fmtTag])
 
-        if self.keyExist(self.fmtTag, section):
-            self.fmt = Formats.parse(section[self.fmtTag])
+            if self.keyExist(self.tmpTag, section):
+                self.tmp = section[self.tmpTag]
 
-        if self.keyExist(self.tmpTag, section):
-            self.tmp = section[self.tmpTag]
+            if self.keyExist(self.noarchTag, section):
+                self.noarch = self.parseBool(section[self.noarchTag])
 
-        if self.keyExist(self.noarchTag, section):
-            self.noarch = self.parseBool(section[self.noarchTag])
+            if self.keyExist(self.noprescanTag, section):
+                self.noprescan = self.parseBool(section[self.noprescanTag])
 
-        if self.keyExist(self.noprescanTag, section):
-            self.noprescan = self.parseBool(section[self.noprescanTag])
-
-        if self.keyExist(self.storageTag, section):
-            self.storageType = section[self.storageTag]
+            if self.keyExist(self.storageTag, section):
+                self.storageType = section[self.storageTag]
 
 
-        # PG section
-        if self.keyExist(self.pghostTag, section):
-            self.pgPath.host = section[self.pghostTag]
+            # PG section
+            if self.keyExist(self.pghostTag, section):
+                self.pgPath.host = section[self.pghostTag]
 
-        if self.keyExist(self.pguserTag, section):
-            self.pgPath.user = section[self.pguserTag]
+            if self.keyExist(self.pguserTag, section):
+                self.pgPath.user = section[self.pguserTag]
 
-        if self.keyExist(self.pgpassTag, section):
-            self.pgPath.password = section[self.pgpassTag]
+            if self.keyExist(self.pgpassTag, section):
+                self.pgPath.password = section[self.pgpassTag]
 
-        if self.keyExist(self.pgdbTag, section):
-            self.pgPath.dbname = section[self.pgdbTag]
+            if self.keyExist(self.pgdbTag, section):
+                self.pgPath.dbname = section[self.pgdbTag]
 
-        if self.storageType == DBEngine.PGEngine and not self.pgPath.filled():
-            raise ValueError("storage is pg but config is incomplete")
+            if self.storageType == DBEngine.PGEngine and not self.pgPath.filled():
+                raise ValueError("storage is pg but config is incomplete")
 
-        print("self.storageType ", self.storageType)
+            print("self.storageType ", self.storageType)
+        except Exception as e:
+            self.logger.logError(f"Error loading config: {str(e)}")
+            traceback.print_tb(e.__traceback__)
 
 #########################################################################################################
 class FolderProcessor:
@@ -378,22 +381,23 @@ class FolderProcessor:
         return 0
 
     def readArchive(self, path: str)-> bool:
-        if not os.path.isfile(path):
-            self.logger.logError("%s is not a file" % path)
-            return False
-        if not self.isArchive(path):
-            self.logger.logError("%s is not an archive" % path)
-            return False
-        tmprc = self.makeTmp(self.tmpBase)
-        if not self.tmpFolder or not tmprc:
-            self.logger.logError("cannot make a tmp folder")
-            return False
-
         try:
-            self.currentArchive = path
-            self.logger.verboseLog("extract %s to %s" % (path, self.tmpFolder))
-            patoolib.extract_archive(path, outdir=self.tmpFolder)
-            self.logger.verboseLog("extract %s to %s - DONE" % (path, self.tmpFolder))
+            if not os.path.isfile(path):
+                self.logger.logError("%s is not a file" % path)
+                return False
+            if not self.isArchive(path):
+                self.logger.logError("%s is not an archive" % path)
+                return False
+            tmprc = self.makeTmp(self.tmpBase)
+            if not self.tmpFolder or not tmprc:
+                self.logger.logError("cannot make a tmp folder")
+                return False
+
+                # TODO: fix archive processing
+                self.currentArchive = path
+                self.logger.verboseLog("extract %s to %s" % (path, self.tmpFolder))
+                patoolib.extract_archive(path, outdir=self.tmpFolder)
+                self.logger.verboseLog("extract %s to %s - DONE" % (path, self.tmpFolder))
         except Exception as e:
             self.logger.logError("extracting failed" + str(e))
             traceback.print_tb(e.__traceback__)
