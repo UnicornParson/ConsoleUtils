@@ -2,6 +2,7 @@
 import os
 import sys
 import argparse
+import git
 
 def read_file_content(filepath):
     """Read file content with error handling for different encodings"""
@@ -17,24 +18,88 @@ def read_file_content(filepath):
     except Exception as e:
         return f"[File reading error: {e}]"
 
-def find_files(directory, extensions):
-    """Find files with specified extensions in directory and subdirectories"""
+def find_files_git(directory, extensions, repo):
+    """Find files using git ls-files"""
     matching_files = []
-
-    # Normalize extensions to lowercase and remove leading dots
+    
+    repo_root = repo.working_tree_dir
+    
+    # Получаем относительный путь от корня репозитория до заданной директории
+    try:
+        rel_dir = os.path.relpath(directory, repo_root)
+    except ValueError:
+        # Если directory не является поддиректорией repo_root (маловероятно)
+        rel_dir = '.'
+    
+    # Получаем список файлов в репозитории, которые не игнорируются
+    try:
+        files = repo.git.ls_files('--full-name', '--cached', '--others', '--exclude-standard').splitlines()
+    except Exception as e:
+        print(f"Warning: git ls-files failed: {e}", file=sys.stderr)
+        return []
+    
+    # Нормализуем расширения
     normalized_extensions = {ext.lower().lstrip('.') for ext in extensions}
+    
+    for file in files:
+        # file - путь относительно корня репозитория
+        # Проверяем, находится ли файл внутри rel_dir
+        if rel_dir != '.':
+            # Если заданная директория не корень, то файл должен начинаться с rel_dir
+            # Используем os.path.join для кроссплатформенности
+            rel_file = file.replace('/', os.sep)
+            if not rel_file.startswith(rel_dir + os.sep):
+                continue
+        
+        # Полный путь к файлу
+        full_path = os.path.join(repo_root, file)
+        
+        # Проверяем расширение
+        _, ext = os.path.splitext(file)
+        ext = ext.lower().lstrip('.')
+        if ext in normalized_extensions:
+            matching_files.append(full_path)
+    
+    return sorted(matching_files)
 
+def find_files_nogit(directory, extensions):
+    """Find files using os.walk (without .gitignore)"""
+    matching_files = []
+    
+    normalized_extensions = {ext.lower().lstrip('.') for ext in extensions}
+    
     for root, dirs, files in os.walk(directory):
+        # Исключаем директорию .git
+        if '.git' in dirs:
+            dirs.remove('.git')
+        
         for file in files:
-            # Get file extension (without dot)
             _, ext = os.path.splitext(file)
             ext = ext.lower().lstrip('.')
-
             if ext in normalized_extensions:
                 full_path = os.path.join(root, file)
                 matching_files.append(full_path)
-
+    
     return sorted(matching_files)
+
+def find_files(directory, extensions):
+    """Find files with specified extensions, respecting .gitignore if in a git repo"""
+    # Пытаемся использовать GitPython для обнаружения репозитория
+    try:
+
+        try:
+            repo = git.Repo(directory, search_parent_directories=True)
+            # Репозиторий найден, используем git-метод
+            print(f"Using git repository at: {repo.working_tree_dir}", file=sys.stderr)
+            return find_files_git(directory, extensions, repo)
+        except git.InvalidGitRepositoryError:
+            # Не Git-репозиторий, используем обычный метод
+            print("Not a git repository, ignoring .gitignore", file=sys.stderr)
+            return find_files_nogit(directory, extensions)
+    except ImportError:
+        # GitPython не установлен, используем обычный метод
+        print("GitPython not installed, ignoring .gitignore", file=sys.stderr)
+        return find_files_nogit(directory, extensions)
 
 def main():
     parser = argparse.ArgumentParser(
